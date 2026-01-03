@@ -470,10 +470,12 @@ class Juego:
             6: "Aumentar longitud",
             7: "Añadir mina",
             8: "Reducir longitud",
-            9: "Reiniciar tiempo"
+            9: "Reseteo total",
+            0: "Crece +100 de longitud",
         }
 
-        for i in range(1, 10):
+        # mostrar botones en orden 1..9 y luego 0 debajo del 9
+        for i in [1,2,3,4,5,6,7,8,9,0]:
             # fondo de fila con margin horizontal
             bg_x = x0 + 10 + row_margin
             bg_y = y - 6
