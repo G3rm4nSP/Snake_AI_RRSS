@@ -3,6 +3,9 @@ import random
 import os
 import sys
 import colorsys
+# Allow importing sibling package `Player` when running this script directly
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from Player import PlayerAI
 
 pygame.init()
 
@@ -31,11 +34,11 @@ MENU_WIDTH = 360
 
 pantalla = pygame.display.set_mode((ANCHO, ALTO), pygame.FULLSCREEN)
 
-# Cargar iconos de assets (1.png .. 9.png)
+# Cargar iconos de assets (0.png .. 9.png)
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
 ICON_SIZE = 52
 icons = {}
-for i in range(1, 10):
+for i in range(0, 10):
     path = os.path.join(ASSETS_DIR, f"{i}.png")
     try:
         img = pygame.image.load(path).convert_alpha()
@@ -104,6 +107,14 @@ class Juego:
         self.velocidad = VELOCIDAD_BASE
         self.en_juego = False
         self.reset_partida()
+        # IA y flags
+        self.ai = PlayerAI()
+        # activar IA por defecto
+        self.ai_enabled = True
+        self.last_human_input = 0
+        # colores del tablero (pueden cambiar dinámicamente)
+        self.board_light_color = VERDE_CLARO
+        self.board_dark_color = VERDE_OSCURO
 
     def reset_partida(self):
         self.tam = calcular_tam_casilla(self.casillas_x, self.casillas_y)
@@ -112,6 +123,11 @@ class Juego:
         self.minas = []
         self.game_over = False
         self.tiempo_inicio = pygame.time.get_ticks()
+        # Garantizar fruta inicial
+        try:
+            self.ensure_fruit_exists()
+        except Exception:
+            pass
         # Movimiento independiente del render
         self.move_acc = 0  # acumulador de ms
         self.prev_cuerpo = list(self.snake.cuerpo)
@@ -155,6 +171,7 @@ class Juego:
         # pausar tiempo jugado
         if self.paused_elapsed is None:
             self.paused_elapsed = (self.game_over_time - self.tiempo_inicio) / 1000.0
+        # (no learning) eliminar lógica de aprendizaje para mantener solo algoritmo
 
     def tiempo_vivo(self):
         # Si se pausó por victoria/derrota devolver el tiempo congelado
@@ -170,6 +187,52 @@ class Juego:
                  random.randint(0, self.casillas_y - 1))
             if p not in self.snake.cuerpo:
                 return p
+
+    def randomize_board_colors(self):
+        # elegir un matiz aleatorio y crear dos tonos (claro / oscuro)
+        h = random.random()
+        # tonos con saturación y valores distintos
+        try:
+            light = hsv_color(h, 0.35, 0.98)
+            dark = hsv_color(h, 0.4, 0.65)
+        except Exception:
+            light, dark = VERDE_CLARO, VERDE_OSCURO
+        self.board_light_color = light
+        self.board_dark_color = dark
+
+    def _maybe_randomize_on_growth(self, prev_len):
+        try:
+            new = self.snake.longitud
+            # si cruzamos un múltiplo de 10
+            if new // 10 > (prev_len // 10):
+                self.randomize_board_colors()
+        except Exception:
+            pass
+
+    def ensure_fruit_exists(self):
+        # Garantizar al menos una fruta en el mapa.
+        # Intentar colocar en casilla libre que NO sea mina; solo si no hay huecos, permitir sobreponer a mina.
+        if getattr(self, 'frutas', None) is None:
+            self.frutas = []
+        if len(self.frutas) > 0:
+            return
+
+        all_pos = [(x, y) for x in range(self.casillas_x) for y in range(self.casillas_y)]
+        forbidden = set(self.snake.cuerpo)
+        # opciones que no sean minas
+        options = [p for p in all_pos if p not in forbidden and p not in set(self.minas)]
+        if options:
+            self.frutas.append(random.choice(options))
+            return
+
+        # si no hay opciones sin minas, permitir sobreponer a mina (pero no al cuerpo)
+        options2 = [p for p in all_pos if p not in forbidden]
+        if options2:
+            self.frutas.append(random.choice(options2))
+            return
+
+        # caso extremo: todo ocupado por cuerpo (muy raro) -> no hacemos nada
+        return
 
     def ampliar_mapa(self):
         if self.resize_active:
@@ -262,7 +325,17 @@ class Juego:
             while cabeza in self.frutas:
                 self.frutas.remove(cabeza)
                 self.frutas_recogidas += 1
+            prev_len = self.snake.longitud
             self.snake.crecer(1)
+            try:
+                self._maybe_randomize_on_growth(prev_len)
+            except Exception:
+                pass
+            # asegurar nueva fruta
+            try:
+                self.ensure_fruit_exists()
+            except Exception:
+                pass
 
         if cabeza in self.minas:
             while cabeza in self.minas:
@@ -432,6 +505,22 @@ class Juego:
         draw_stat((220,180,80), "Spd", f"{self.velocidad}")
         draw_stat((200,200,200), "Map", f"{self.casillas_x}x{self.casillas_y}")
         draw_stat((180,200,255), "Time", f"{self.tiempo_vivo():.1f}s")
+
+        # Indicador IA (ON/OFF) y riesgo
+        try:
+            ai_on = getattr(self, 'ai_enabled', False)
+            ai_risk = getattr(self, 'ai', None).risk if getattr(self, 'ai', None) is not None else 0
+            ai_color = (120, 255, 120) if ai_on else (220, 120, 120)
+            pygame.draw.circle(pantalla, ai_color, (x_cursor + 8, 14 + hud_h//2 - 2), 6)
+            x_cursor += 18
+            txt = fuente_small.render('AI', True, (200,200,200))
+            pantalla.blit(txt, (x_cursor, 14))
+            x_cursor += txt.get_width() + 6
+            val = fuente_small.render(f"{'ON' if ai_on else 'OFF'} r{ai_risk}", True, (255,255,255))
+            pantalla.blit(val, (x_cursor, 14))
+            x_cursor += val.get_width() + gap
+        except Exception:
+            pass
 
     def dibujar_menu(self):
         # panel derecho
@@ -692,59 +781,92 @@ while True:
             if e.key == pygame.K_SPACE and not juego.en_juego:
                 juego.en_juego = True
                 juego.reset_partida()
+                # empezar como jugador humano
+                juego.ai_enabled = False
 
+            if e.key == pygame.K_RETURN and not juego.en_juego:
+                juego.en_juego = True
+                juego.reset_partida()
+                # empezar con IA
+                juego.ai_enabled = True
             if not juego.en_juego:
                 continue
 
-            # Bloquear todas las teclas del juego mientras hay overlay de victoria/derrota
+            # Si hay overlay de victoria/derrota: cualquier tecla acelera el contador a 0
             if juego.win_state or juego.game_over:
-                # permitir salir con ESC ya se maneja arriba; aquí descartamos el resto
+                # ESC ya se maneja arriba; el resto de teclas harán que el countdown termine
+                if e.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+                if juego.win_state:
+                    juego.win_countdown = 0
+                if juego.game_over:
+                    juego.game_over_countdown = 0
                 continue
 
             if e.key == pygame.K_LEFT:
                 juego.snake.cambiar_direccion((-1, 0))
+                juego.last_human_input = pygame.time.get_ticks()
             if e.key == pygame.K_RIGHT:
                 juego.snake.cambiar_direccion((1, 0))
+                juego.last_human_input = pygame.time.get_ticks()
             if e.key == pygame.K_UP:
                 juego.snake.cambiar_direccion((0, -1))
+                juego.last_human_input = pygame.time.get_ticks()
             if e.key == pygame.K_DOWN:
                 juego.snake.cambiar_direccion((0, 1))
+                juego.last_human_input = pygame.time.get_ticks()
+
+            # Toggle IA con la tecla A
+            if e.key == pygame.K_a:
+                juego.ai_enabled = not getattr(juego, 'ai_enabled', False)
+                print(f"AI enabled: {juego.ai_enabled}")
 
             if e.key == pygame.K_1:
                 juego.key_counts[1] = juego.key_counts.get(1, 0) + 1
                 juego.ampliar_mapa()
+                juego.ai.set_difficulty(1)
 
             if e.key == pygame.K_2:
                 juego.key_counts[2] = juego.key_counts.get(2, 0) + 1
                 juego.reducir_mapa()
+                juego.ai.set_difficulty(2)
 
             if e.key == pygame.K_3:
                 juego.key_counts[3] = juego.key_counts.get(3, 0) + 1
                 juego.velocidad += 1
+                juego.ai.set_difficulty(3)
             if e.key == pygame.K_4 and juego.velocidad > 1:
                 juego.key_counts[4] = juego.key_counts.get(4, 0) + 1
                 juego.velocidad -= 1
+                juego.ai.set_difficulty(4)
 
             if e.key == pygame.K_5:
                 juego.key_counts[5] = juego.key_counts.get(5, 0) + 1
                 juego.frutas.append(juego.pos_libre())
+                juego.ai.set_difficulty(5)
             if e.key == pygame.K_6:
                 juego.key_counts[6] = juego.key_counts.get(6, 0) + 1
                 juego.snake.crecer(1)
+                juego.ai.set_difficulty(6)
             if e.key == pygame.K_7:
                 juego.key_counts[7] = juego.key_counts.get(7, 0) + 1
                 juego.minas.append(juego.pos_libre())
+                juego.ai.set_difficulty(7)
             if e.key == pygame.K_8:
                 juego.key_counts[8] = juego.key_counts.get(8, 0) + 1
                 juego.snake.reducir(1)
+                juego.ai.set_difficulty(8)
                 if juego.snake.longitud <= 0:
                     juego.reset_total()
             if e.key == pygame.K_0:
                 juego.key_counts[0] = juego.key_counts.get(0, 0) + 1
                 juego.snake.crecer(100)
+                juego.ai.set_difficulty(0)
             if e.key == pygame.K_9:
                 juego.key_counts[9] = juego.key_counts.get(9, 0) + 1
                 juego.reset_total()
+                juego.ai.set_difficulty(9)
 
     pantalla.fill((0, 0, 0))
     if not juego.en_juego:
@@ -759,6 +881,18 @@ while True:
             # Ejecutar uno o varios pasos de movimiento si hace falta
             while juego.move_acc >= move_interval:
                 juego.prev_cuerpo = list(juego.cur_cuerpo)
+                # Si la IA está activada y no hubo input humano reciente, pedir decisión
+                try:
+                    if getattr(juego, 'ai_enabled', False):
+                        now = pygame.time.get_ticks()
+                        last = getattr(juego, 'last_human_input', 0)
+                        if now - last > 250:
+                            nd = juego.ai.get_next_move(juego)
+                            if nd:
+                                juego.snake.cambiar_direccion(nd)
+                except Exception:
+                    pass
+
                 juego.step_move()
                 juego.cur_cuerpo = list(juego.snake.cuerpo)
                 juego.move_acc -= move_interval
@@ -770,7 +904,17 @@ while True:
                         while cabeza in juego.frutas:
                             juego.frutas.remove(cabeza)
                             juego.frutas_recogidas += 1
+                        prev_len = juego.snake.longitud
                         juego.snake.crecer(1)
+                        try:
+                            juego._maybe_randomize_on_growth(prev_len)
+                        except Exception:
+                            pass
+                        # asegurar nueva fruta
+                        try:
+                            juego.ensure_fruit_exists()
+                        except Exception:
+                            pass
                     if cabeza in juego.minas:
                         while cabeza in juego.minas:
                             juego.minas.remove(cabeza)
