@@ -4,6 +4,10 @@ from queue import Queue
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
+TRIGGER_PORT = int(os.getenv("TRIGGER_PORT", "8765"))
+
+
 
 # Cola compartida con el juego
 trigger_queue = Queue()
@@ -24,11 +28,12 @@ class TriggerHandler(BaseHTTPRequestHandler):
             data = json.loads(body)
             key = int(data.get("key"))
 
-            if 0 <= key <= 9:
+            if 0 <= key <= 10:
                 trigger_queue.put(key)
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"OK")
+        
             else:
                 raise ValueError
 
@@ -38,8 +43,8 @@ class TriggerHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"INVALID")
 
 def start_server():
-    server = HTTPServer(("0.0.0.0", 8765), TriggerHandler)
-    print("🔥 Trigger server listening on port 8765")
+    server = HTTPServer(("0.0.0.0", TRIGGER_PORT), TriggerHandler)
+    print("🔥 Trigger server listening on port", TRIGGER_PORT)
     server.serve_forever()
 
 def run_triggers():

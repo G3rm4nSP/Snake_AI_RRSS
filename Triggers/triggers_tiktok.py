@@ -1,6 +1,8 @@
 from TikTokLive import TikTokLiveClient
 from TikTokLive.events import GiftEvent, LikeEvent, CommentEvent
 import threading
+import os
+TIKTOK_USERNAME = os.getenv("TIKTOK_USERNAME", "usuario_por_defecto")
 
 # Esta cola la inyecta Snake.py
 trigger_queue = None
@@ -10,9 +12,8 @@ def init_queue(shared_queue):
     trigger_queue = shared_queue
 
 # ⚠️ CAMBIA ESTO
-TIKTOK_USER = "@germansp25"
 
-client = TikTokLiveClient(unique_id=TIKTOK_USER)
+client = TikTokLiveClient(unique_id=TIKTOK_USERNAME)
 
 # -------- EVENTOS --------
 

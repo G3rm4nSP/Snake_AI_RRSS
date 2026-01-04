@@ -3,6 +3,7 @@ import random
 import os
 import sys
 import colorsys
+import numpy as np
 # Allow importing sibling package `Player` when running this script directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from Player import PlayerAI
@@ -13,10 +14,12 @@ from Triggers.triggers_http import trigger_queue, run_triggers
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from Triggers.triggers_tiktok import run_triggers_tiktok
 
+#os.environ['SDL_AUDIODRIVER'] = 'dummy'
+
 pygame.init()
 
 # ================= CONFIG =================
-FPS = 60
+FPS = 30
 VELOCIDAD_BASE = 8
 DANO_MINA = 3
 
@@ -51,6 +54,14 @@ for i in range(0, 10):
         icons[i] = pygame.transform.smoothscale(img, (ICON_SIZE, ICON_SIZE))
     except Exception:
         icons[i] = None
+
+# Inicializar pygame mixer
+pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+pygame.mixer.music.load(os.path.join(ASSETS_DIR, "music.mp3"))
+pygame.mixer.music.play(-1)
+# Ejemplo de efecto
+efecto_click = pygame.mixer.Sound(os.path.join(ASSETS_DIR, "click1.mp3"))
+#efecto_click.play() para que suene
 
 # ================= UTIL =================
 def calcular_tam_casilla(cx, cy):
@@ -842,6 +853,15 @@ while True:
             juego.trigger_game_over()
             juego.ai.set_difficulty(9)
 
+        # ===INICIAR IA CON KEY 10====
+        elif key == 10 and not juego.en_juego:
+            print("Iniciando partida con IA desde trigger externo")
+            juego.en_juego = True
+            juego.reset_partida()
+            # empezar con IA
+            juego.ai_enabled = True
+        if not juego.en_juego:
+            continue
 
     dt = clock.tick(FPS)
     for e in pygame.event.get():
