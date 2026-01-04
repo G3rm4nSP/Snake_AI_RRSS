@@ -6,9 +6,12 @@ import colorsys
 # Allow importing sibling package `Player` when running this script directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from Player import PlayerAI
-# TRIGGERS
+# TRIGGERS_BOTS
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from Triggers.triggers import trigger_queue, run_triggers
+from Triggers.triggers_http import trigger_queue, run_triggers
+# TRIGGERS_TIKTOK
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from Triggers.triggers_tiktok import run_triggers_tiktok
 
 pygame.init()
 
@@ -778,6 +781,10 @@ juego = Juego()
 
 # Iniciar servidor de triggers externos
 run_triggers()
+
+# Iniciar triggers TikTok
+#run_triggers_tiktok(trigger_queue)
+#bloqueado por el momento para evitar dependencias externas
 
 while True:
     # ===== TRIGGERS EXTERNOS =====
