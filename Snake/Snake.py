@@ -6,6 +6,9 @@ import colorsys
 # Allow importing sibling package `Player` when running this script directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from Player import PlayerAI
+# TRIGGERS
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from Triggers.triggers import trigger_queue, run_triggers
 
 pygame.init()
 
@@ -148,7 +151,7 @@ class Juego:
         self.confeti = []
         self.win_timer = 0
         # estadisticas: conteo de teclas 1..9 y muestras de velocidad
-        self.key_counts = {i: 0 for i in range(1, 10)}
+        self.key_counts = {i: 0 for i in range(10)}
         self.speed_samples = []
         self.win_time = None
         # contadores de pickup
@@ -290,6 +293,11 @@ class Juego:
         self.resize_timer = 0
         self.resize_from = (from_x, from_y)
         self.resize_to = (self.casillas_x, self.casillas_y)
+        try:
+            self.ensure_fruit_exists()
+        except Exception:
+            pass
+
 
     def actualizar(self):
         # Ahora el movimiento se controla externamente por un acumulador
@@ -371,7 +379,7 @@ class Juego:
 
         for y in range(rows):
             for x in range(cols):
-                color = VERDE_CLARO if (x + y) % 2 == 0 else VERDE_OSCURO
+                color = self.board_light_color if (x + y) % 2 == 0 else self.board_dark_color
                 pygame.draw.rect(
                     pantalla,
                     color,
@@ -641,6 +649,7 @@ class Juego:
             ("Tiempo:", f"{tiempo_win:.2f}s"),
             ("Velocidad media:", f"{avg_speed:.2f}"),
             ("Vel final:", f"{self.velocidad}"),
+            ("Longitud final:", f"{self.snake.longitud}"),
             ("Tamaño final:", f"{self.casillas_x}x{self.casillas_y}")
         ]
 
@@ -714,6 +723,7 @@ class Juego:
             ("Tiempo:", f"{tiempo_go:.2f}s"),
             ("Velocidad media:", f"{avg_speed:.2f}"),
             ("Vel final:", f"{self.velocidad}"),
+            ("Longitud final:", f"{self.snake.longitud}"),
             ("Tamaño final:", f"{self.casillas_x}x{self.casillas_y}")
         ]
 
@@ -766,7 +776,66 @@ class Juego:
 # ================= LOOP =================
 juego = Juego()
 
+# Iniciar servidor de triggers externos
+run_triggers()
+
 while True:
+    # ===== TRIGGERS EXTERNOS =====
+    while not trigger_queue.empty():
+        key = trigger_queue.get()
+
+        # Simular pulsación de tecla 0–9
+        if key == 0:
+            juego.key_counts[0] += 1
+            juego.snake.crecer(100)
+            juego.ai.set_difficulty(0)
+
+        elif key == 1:
+            juego.key_counts[1] += 1
+            juego.ampliar_mapa()
+            juego.ai.set_difficulty(1)
+
+        elif key == 2:
+            juego.key_counts[2] += 1
+            juego.reducir_mapa()
+            juego.ai.set_difficulty(2)
+
+        elif key == 3:
+            juego.key_counts[3] += 1
+            juego.velocidad += 1
+            juego.ai.set_difficulty(3)
+
+        elif key == 4 and juego.velocidad > 1:
+            juego.key_counts[4] += 1
+            juego.velocidad -= 1
+            juego.ai.set_difficulty(4)
+
+        elif key == 5:
+            juego.key_counts[5] += 1
+            juego.frutas.append(juego.pos_libre())
+            juego.ai.set_difficulty(5)
+
+        elif key == 6:
+            juego.key_counts[6] += 1
+            juego.snake.crecer(1)
+            juego.ai.set_difficulty(6)
+
+        elif key == 7:
+            juego.key_counts[7] += 1
+            juego.minas.append(juego.pos_libre())
+            juego.ai.set_difficulty(7)
+
+        elif key == 8:
+            juego.key_counts[8] += 1
+            juego.snake.reducir(1)
+            juego.ai.set_difficulty(8)
+
+        elif key == 9:
+            juego.key_counts[9] += 1
+            juego.trigger_game_over()
+            juego.ai.set_difficulty(9)
+
+
     dt = clock.tick(FPS)
     for e in pygame.event.get():
         if e.type == pygame.QUIT:
@@ -858,14 +927,14 @@ while True:
                 juego.snake.reducir(1)
                 juego.ai.set_difficulty(8)
                 if juego.snake.longitud <= 0:
-                    juego.reset_total()
+                    juego.trigger_game_over()
             if e.key == pygame.K_0:
                 juego.key_counts[0] = juego.key_counts.get(0, 0) + 1
                 juego.snake.crecer(100)
                 juego.ai.set_difficulty(0)
             if e.key == pygame.K_9:
                 juego.key_counts[9] = juego.key_counts.get(9, 0) + 1
-                juego.reset_total()
+                juego.trigger_game_over()
                 juego.ai.set_difficulty(9)
 
     pantalla.fill((0, 0, 0))
