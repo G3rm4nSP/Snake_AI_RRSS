@@ -14,14 +14,13 @@ from Triggers.triggers_http import trigger_queue, run_triggers
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from Triggers.triggers_tiktok import run_triggers_tiktok
 
-#os.environ['SDL_AUDIODRIVER'] = 'dummy'
-
 pygame.init()
 
 # ================= CONFIG =================
 FPS = 30
-VELOCIDAD_BASE = 8
+VELOCIDAD_BASE = 110
 DANO_MINA = 3
+TAMAÑO_TABLERO_INICIAL = 10
 
 VERDE_CLARO = (170, 220, 170)
 VERDE_OSCURO = (130, 180, 130)
@@ -35,13 +34,15 @@ fuente = pygame.font.SysFont("consolas", 22)
 fuente_grande = pygame.font.SysFont("consolas", 42)
 fuente_console_big = pygame.font.SysFont("consolas", 96)
 
-info = pygame.display.Info()
-ANCHO = info.current_w
-ALTO = info.current_h
-HUD_ALTO = 50
-MENU_WIDTH = 360
+ANCHO = 380
+ALTO = 720
 
-pantalla = pygame.display.set_mode((ANCHO, ALTO), pygame.FULLSCREEN)
+HUD_ALTO = 56
+MENU_HEIGHT = 260   # NUEVO: menú abajo
+MENU_WIDTH = 0      # ya no se usa lateral
+
+
+pantalla = pygame.display.set_mode((ANCHO, ALTO))
 
 # Cargar iconos de assets (0.png .. 9.png)
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
@@ -65,9 +66,9 @@ efecto_click = pygame.mixer.Sound(os.path.join(ASSETS_DIR, "click1.mp3"))
 
 # ================= UTIL =================
 def calcular_tam_casilla(cx, cy):
-    # Reservar espacio para el menú a la derecha
-    available_width = max(ANCHO - MENU_WIDTH, 100)
-    return min(available_width // cx, (ALTO - HUD_ALTO) // cy)
+    available_height = max(ALTO - HUD_ALTO - MENU_HEIGHT, 200)
+    available_width = ANCHO
+    return min(available_width // cx, available_height // cy)
 
 def hsv_color(h, s=1, v=1):
     r, g, b = colorsys.hsv_to_rgb(h % 1.0, s, v)
@@ -114,13 +115,13 @@ class Snake:
 # ================= JUEGO =================
 class Juego:
     def __init__(self):
-        self.casillas_x = 30
-        self.casillas_y = 20
+        self.casillas_x = TAMAÑO_TABLERO_INICIAL
+        self.casillas_y = TAMAÑO_TABLERO_INICIAL
         self.reset_total()
 
     def reset_total(self):
-        self.casillas_x = 30
-        self.casillas_y = 20
+        self.casillas_x = TAMAÑO_TABLERO_INICIAL
+        self.casillas_y = TAMAÑO_TABLERO_INICIAL
         self.velocidad = VELOCIDAD_BASE
         self.en_juego = False
         self.reset_partida()
@@ -181,7 +182,7 @@ class Juego:
         if self.game_over:
             return
         self.game_over = True
-        self.game_over_countdown = 10000  # ms
+        self.game_over_countdown = 100  # ms cuenta atrás
         self.game_over_start = pygame.time.get_ticks()
         # almacenar tiempo final
         self.game_over_time = pygame.time.get_ticks()
@@ -504,7 +505,7 @@ class Juego:
         hud_h = 44
         s = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
         s.fill((10, 10, 14, 200))
-        pantalla.blit(s, (10, 6))
+        pantalla.blit(s, ((ANCHO - hud_w)//2, 6))
 
         # Estadísticas colocando etiquetas cortas y colores claros
         x_cursor = 18
@@ -545,68 +546,61 @@ class Juego:
             pass
 
     def dibujar_menu(self):
-        # panel derecho
-        x0 = ANCHO - MENU_WIDTH
-        pygame.draw.rect(pantalla, (30, 30, 40), (x0, HUD_ALTO, MENU_WIDTH, ALTO - HUD_ALTO))
-        # título
-        titulo = fuente_grande.render("MENU", True, (250, 220, 130))
-        pantalla.blit(titulo, (x0 + 12, HUD_ALTO + 8))
+        y0 = ALTO - MENU_HEIGHT
+        pygame.draw.rect(
+            pantalla,
+            (25, 25, 35),
+            (0, y0, ANCHO, MENU_HEIGHT)
+        )
 
-        # descripciones por botón
+        titulo = fuente.render("ACCIONES", True, (250, 220, 130))
+        pantalla.blit(titulo, (12, y0 + 8))
+
         acciones = {
-            1: "Aumenta mapa",
-            2: "Disminuye mapa",
-            3: "Aumenta velocidad",
-            4: "Disminuye velocidad",
-            5: "Añade fruta",
-            6: "Crecimiento +1",
-            7: "Añade mina",
-            8: "Reduce serpiente",
-            9: "Reseteo total",
-            0: "Crece +100 de longitud",
+            1: "Mapa +",
+            2: "Mapa -",
+            3: "Vel +",
+            4: "Vel -",
+            5: "Fruta",
+            6: "Grow",
+            7: "Mina",
+            8: "Shrink",
+            9: "Reset",
+            0: "+100",
         }
 
-        y = HUD_ALTO + 70
-        pad = 12
-        row_margin = 12
-        row_spacing = 10
-        menu_font = pygame.font.SysFont("consolas", 14)
-        # etiquetas acortadas para asegurar que entren
-        acciones_short = {
-            1: "Aumentar mapa",
-            2: "Reducir mapa",
-            3: "Aumentar velocidad",
-            4: "Disminuir velocidad",
-            5: "Añadir fruta",
-            6: "Aumentar longitud",
-            7: "Añadir mina",
-            8: "Reducir longitud",
-            9: "Reseteo total",
-            0: "Crece +100 de longitud",
-        }
+        cols = 5
+        spacing_x = ANCHO // cols
+        start_y = y0 + 40
 
-        # mostrar botones en orden 1..9 y luego 0 debajo del 9
-        for i in [1,2,3,4,5,6,7,8,9,0]:
-            # fondo de fila con margin horizontal
-            bg_x = x0 + 10 + row_margin
-            bg_y = y - 6
-            bg_w = max(40, MENU_WIDTH - 20 - row_margin * 2)
-            pygame.draw.rect(pantalla, (40, 40, 55), (bg_x, bg_y, bg_w, ICON_SIZE + pad), border_radius=8)
+        font_btn = pygame.font.SysFont("consolas", 16)
 
-            # icono (desplazado respecto al bg)
-            icon_x = bg_x + 8
-            icon = icons.get(i)
+        i = 0
+        for k in [1,2,3,4,5,6,7,8,9,0]:
+            col = i % cols
+            row = i // cols
+
+            x = col * spacing_x + spacing_x // 2
+            y = start_y + row * 90
+
+            # fondo botón
+            pygame.draw.rect(
+                pantalla,
+                (45, 45, 65),
+                (x - 40, y - 36, 80, 80),
+                border_radius=12
+            )
+
+            icon = icons.get(k)
             if icon:
-                pantalla.blit(icon, (icon_x, y))
+                pantalla.blit(icon, (x - ICON_SIZE//2, y - ICON_SIZE//2))
             else:
-                pygame.draw.rect(pantalla, (120, 120, 140), (icon_x, y, ICON_SIZE, ICON_SIZE))
+                pygame.draw.circle(pantalla, (120,120,140), (x, y), 22)
 
-            # texto (más descriptivo)
-            label = acciones_short.get(i, acciones.get(i, ''))
-            txt_surface = menu_font.render(f"{i}. {label}", True, (220, 220, 220))
-            pantalla.blit(txt_surface, (icon_x + ICON_SIZE + 16, y + ICON_SIZE//4))
+            label = font_btn.render(acciones[k], True, (220,220,220))
+            pantalla.blit(label, (x - label.get_width()//2, y + 28))
 
-            y += ICON_SIZE + pad + row_spacing
+            i += 1
 
     def win(self):
         if self.win_state:
@@ -633,155 +627,84 @@ class Juego:
             self.confeti.append(p)
 
     def dibujar_win(self, dt):
+        self.ai.finalize_game(won=True)  # won=False si murió
         # fondo semi-transparente
         s = pygame.Surface((ANCHO, ALTO), pygame.SRCALPHA)
         s.fill((0, 0, 0, 180))
         pantalla.blit(s, (0, 0))
 
+        # mensaje principal centrado horizontal y 1/4 de la pantalla
         msg = fuente_grande.render("¡VICTORIA!", True, (255, 240, 60))
-        pantalla.blit(msg, (ANCHO//2 - msg.get_width()//2, ALTO//2 - 80))
+        pantalla.blit(msg, (ANCHO//2 - msg.get_width()//2, ALTO//4))
 
+        # subtítulo debajo del mensaje principal
         subt = fuente.render(f"Longitud: {self.snake.longitud} / {self.casillas_x * self.casillas_y}", True, (255,255,255))
-        pantalla.blit(subt, (ANCHO//2 - subt.get_width()//2, ALTO//2 - 20))
+        pantalla.blit(subt, (ANCHO//2 - subt.get_width()//2, ALTO//4 + 60))
 
-        # estadísticas detalladas
+        # estadísticas resumidas más abajo
         fuente_small = pygame.font.SysFont("consolas", 20)
-        left = ANCHO//2 - msg.get_width()//2
-        top = ALTO//2 + 20
-
-        # tiempo a la victoria
-        if self.win_time is None:
-            tiempo_win = 0.0
-        else:
-            tiempo_win = (self.win_time - self.tiempo_inicio) / 1000.0
-
-        avg_speed = 0.0
-        if len(self.speed_samples) > 0:
-            avg_speed = sum(self.speed_samples) / len(self.speed_samples)
-
+        stats_y = ALTO//4 + 120
         stats = [
-            ("Tiempo:", f"{tiempo_win:.2f}s"),
-            ("Velocidad media:", f"{avg_speed:.2f}"),
-            ("Vel final:", f"{self.velocidad}"),
-            ("Longitud final:", f"{self.snake.longitud}"),
-            ("Tamaño final:", f"{self.casillas_x}x{self.casillas_y}")
+            ("Tiempo:", f"{self.tiempo_vivo():.2f}s"),
+            ("Velocidad:", f"{self.velocidad}"),
+            ("Tamaño:", f"{self.casillas_x}x{self.casillas_y}"),
+            ("Frutas:", f"{self.frutas_recogidas}"),
+            ("Minas:", f"{self.minas_activadas}")
         ]
 
-        iy = top
         for k, v in stats:
             t1 = fuente_small.render(k, True, (220, 220, 220))
             t2 = fuente_small.render(v, True, (255, 255, 200))
-            pantalla.blit(t1, (left, iy))
-            pantalla.blit(t2, (left + 220, iy))
-            iy += 26
+            pantalla.blit(t1, (20, stats_y))
+            pantalla.blit(t2, (220, stats_y))
+            stats_y += 28
 
-        # conteo de teclas 1..9
-        iy += 8
-        t_title = fuente_small.render("Teclas (1-9):", True, (200,200,255))
-        pantalla.blit(t_title, (left, iy))
-        iy += 26
-        # mostrar en filas de 3
-        colx = [left, left + 140, left + 280]
-        for i in range(1, 10):
-            cnt = self.key_counts.get(i, 0)
-            txt = fuente_small.render(f"{i}: x{cnt}", True, (230,230,230))
-            cx = colx[(i-1) % 3]
-            cy = iy + ((i-1)//3) * 24
-            pantalla.blit(txt, (cx, cy))
-        # frutas/minas recogidas
-        iy += 90
-        t_fm = fuente_small.render("Recolectadas:", True, (200,200,255))
-        pantalla.blit(t_fm, (left, iy))
-        iy += 28
-        t_fr = fuente_small.render(f"Frutas: x{self.frutas_recogidas}", True, (140,255,140))
-        pantalla.blit(t_fr, (left, iy))
-        iy += 24
-        t_mi = fuente_small.render(f"Minas: x{self.minas_activadas}", True, (255,140,140))
-        pantalla.blit(t_mi, (left, iy))
-
-        # animar confeti
+        # animar confeti en toda la pantalla
         for c in self.confeti:
             c['x'] += c['vx'] * (dt/1000.0)
             c['y'] += c['vy'] * (dt/1000.0)
             pygame.draw.circle(pantalla, c['col'], (int(c['x']), int(c['y'])), c['size'])
-        # contador grande encima del mensaje (si existe win_countdown)
+
+        # contador grande encima del mensaje principal
         if getattr(self, 'win_countdown', None) is not None:
             remain = max(0, int(self.win_countdown / 1000))
             big = fuente_console_big.render(str(remain), True, (255, 255, 255))
-            pantalla.blit(big, (ANCHO//2 - big.get_width()//2, ALTO//2 - 220))
+            pantalla.blit(big, (ANCHO//2 - big.get_width()//2, ALTO//4 - 100))
 
     def dibujar_game_over(self, dt):
-        # Similar a dibujar_win pero sin confeti y con cuenta atrás de 10s
+        self.ai.finalize_game(won=False)  # won=False si murió
+        # fondo semi-transparente
         s = pygame.Surface((ANCHO, ALTO), pygame.SRCALPHA)
         s.fill((0, 0, 0, 190))
         pantalla.blit(s, (0, 0))
 
+        # mensaje principal centrado horizontal y 1/4 de la pantalla
         msg = fuente_grande.render("GAME OVER", True, (240, 80, 80))
-        pantalla.blit(msg, (ANCHO//2 - msg.get_width()//2, ALTO//2 - 120))
+        pantalla.blit(msg, (ANCHO//2 - msg.get_width()//2, ALTO//4))
 
+        # estadísticas resumidas
         fuente_small = pygame.font.SysFont("consolas", 20)
-        left = ANCHO//2 - 220
-        top = ALTO//2 - 40
-
-        # tiempo desde inicio hasta game over
-        if getattr(self, 'game_over_time', None) is None:
-            tiempo_go = 0.0
-        else:
-            tiempo_go = (self.game_over_time - self.tiempo_inicio) / 1000.0
-
-        avg_speed = 0.0
-        if len(self.speed_samples) > 0:
-            avg_speed = sum(self.speed_samples) / len(self.speed_samples)
-
+        stats_y = ALTO//4 + 80
         stats = [
-            ("Tiempo:", f"{tiempo_go:.2f}s"),
-            ("Velocidad media:", f"{avg_speed:.2f}"),
-            ("Vel final:", f"{self.velocidad}"),
-            ("Longitud final:", f"{self.snake.longitud}"),
-            ("Tamaño final:", f"{self.casillas_x}x{self.casillas_y}")
+            ("Tiempo:", f"{self.tiempo_vivo():.2f}s"),
+            ("Velocidad:", f"{self.velocidad}"),
+            ("Tamaño:", f"{self.casillas_x}x{self.casillas_y}"),
+            ("Frutas:", f"{self.frutas_recogidas}"),
+            ("Minas:", f"{self.minas_activadas}")
         ]
 
-        iy = top
         for k, v in stats:
             t1 = fuente_small.render(k, True, (220, 220, 220))
             t2 = fuente_small.render(v, True, (255, 255, 200))
-            pantalla.blit(t1, (left, iy))
-            pantalla.blit(t2, (left + 200, iy))
-            iy += 26
+            pantalla.blit(t1, (20, stats_y))
+            pantalla.blit(t2, (220, stats_y))
+            stats_y += 28
 
-        # tecla counts
-        iy += 8
-        t_title = fuente_small.render("Teclas (1-9):", True, (200,200,255))
-        pantalla.blit(t_title, (left, iy))
-        iy += 26
-        colx = [left, left + 140, left + 280]
-        for i in range(1, 10):
-            cnt = self.key_counts.get(i, 0)
-            txt = fuente_small.render(f"{i}: x{cnt}", True, (230,230,230))
-            cx = colx[(i-1) % 3]
-            cy = iy + ((i-1)//3) * 24
-            pantalla.blit(txt, (cx, cy))
-
-        # frutas/minas recogidas
-        iy += 90
-        t_fm = fuente_small.render("Recolectadas:", True, (200,200,255))
-        pantalla.blit(t_fm, (left, iy))
-        iy += 28
-        t_fr = fuente_small.render(f"Frutas: x{self.frutas_recogidas}", True, (140,255,140))
-        pantalla.blit(t_fr, (left, iy))
-        iy += 24
-        t_mi = fuente_small.render(f"Minas: x{self.minas_activadas}", True, (255,140,140))
-        pantalla.blit(t_mi, (left, iy))
-
-        # countdown visual
-        if getattr(self, 'game_over_countdown', None) is None:
-            remain = 0
-        else:
-            remain = max(0, int(self.game_over_countdown / 1000))
-        # mostrar countdown grande encima del mensaje
+        # contador grande encima del mensaje principal
+        remain = max(0, int(getattr(self, 'game_over_countdown', 0) / 1000))
         cd_big = fuente_console_big.render(str(remain), True, (255, 255, 255))
-        pantalla.blit(cd_big, (ANCHO//2 - cd_big.get_width()//2, ALTO//2 - 220))
-        
+        pantalla.blit(cd_big, (ANCHO//2 - cd_big.get_width()//2, ALTO//4 - 100))
+ 
     def dibujar_inicio(self):
         msg = fuente_grande.render("Pulsa ESPACIO para iniciar", True, TEXTO_COLOR)
         pantalla.blit(msg, (ANCHO//2 - msg.get_width()//2,
