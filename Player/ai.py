@@ -1,248 +1,228 @@
 import heapq
-import json
-import os
-import random
-from collections import deque, defaultdict
-
+from collections import deque
 
 class PlayerAI:
     def __init__(self):
-        self.memory = deque(maxlen=50)
+        self.risk = 5
+        self.memory = deque(maxlen=100)  # memoriza posiciones recientes de la serpiente
         self.body_length_memory = 0
 
-        self.knowledge_file = "snake_ai_knowledge.json"
-        self.knowledge = defaultdict(lambda: defaultdict(int))
-
-        self.generation = 1
-        self.steps_alive = 0
-
-        self.load_knowledge()
+    def set_difficulty(self, v: int):
+        self.risk = max(0, min(9, int(v)))
 
     # ==========================================================
-    # PERSISTENCIA
-    # ==========================================================
-    def load_knowledge(self):
-        if os.path.exists(self.knowledge_file):
-            with open(self.knowledge_file, "r") as f:
-                raw = json.load(f)
-                for k, v in raw.items():
-                    self.knowledge[k] = defaultdict(int, v)
-            print(f"[AI] Conocimiento cargado ({len(self.knowledge)})")
-        else:
-            print("[AI] Nueva IA, sin conocimiento previo")
-
-    def save_knowledge(self):
-        with open(self.knowledge_file, "w") as f:
-            json.dump(self.knowledge, f)
-
-    def on_game_over(self):
-        self.save_knowledge()
-        self.generation += 1
-        self.steps_alive = 0
-        print(f"[AI] Nueva generación → {self.generation}")
-
-    # ==========================================================
-    # MAIN
+    # MAIN ENTRY
     # ==========================================================
     def get_next_move(self, juego):
-        self.steps_alive += 1
-
         head = juego.snake.cuerpo[-1]
         body = list(juego.snake.cuerpo)
-        tail = body[0]
+        tail = body[0] if body else head
         body_set = set(body)
         fruits = set(juego.frutas)
         mines = set(juego.minas)
         cols, rows = juego.casillas_x, juego.casillas_y
+        neighbors = [(-1,0),(1,0),(0,-1),(0,1)]
 
-        # -------- memoria para detectar bucle --------
+        # ---------- Actualizar memoria ----------
         if self.body_length_memory != len(body):
-            self.memory.clear()
+            self.memory = deque(list(body), maxlen=len(body))
             self.body_length_memory = len(body)
-
-        self.memory.append(head)
-        in_loop = len(self.memory) == self.memory.maxlen and len(set(self.memory)) < 5
-
-        # -------- estado IA --------
-        state = self.make_state(
-            head, fruits, body, mines, cols, rows, in_loop
-        )
-        state_key = str(state)
-
-        # ==================================================
-        # 1️⃣ ALGORITMO NORMAL (SIEMPRE)
-        # ==================================================
-        move = None
-
-        if fruits:
-            move = self.move_to_fruit(head, body, tail, fruits, mines, cols, rows)
-
-        if not move:
-            move = self.follow_tail(head, tail, body_set, mines, cols, rows)
-
-        if not move:
-            move = self.get_safe_random(head, body_set, mines, cols, rows)
-
-        # ==================================================
-        # 2️⃣ APRENDIZAJE DEL ALGORITMO
-        # ==================================================
-        if move:
-            self.knowledge[state_key][str(move)] += 1
-
-        # ==================================================
-        # 3️⃣ SI ENTRA EN BUCLE → USAR IA
-        # ==================================================
-        if in_loop:
-            learned = self.choose_learned_action(state_key, head, body_set, mines, cols, rows)
-            if learned:
-                return learned
-            else:
-                return self.break_loop_random(head, body_set, mines, cols, rows)
-
-        return move or juego.snake.direccion
-
-    # ==========================================================
-    # IA APRENDIDA
-    # ==========================================================
-    def choose_learned_action(self, state_key, head, body_set, mines, cols, rows):
-        if state_key not in self.knowledge:
-            return None
-
-        actions = sorted(
-            self.knowledge[state_key].items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-
-        for action_str, _ in actions:
-            dx, dy = eval(action_str)
-            nx, ny = head[0] + dx, head[1] + dy
-            if 0 <= nx < cols and 0 <= ny < rows:
-                if (nx, ny) not in body_set and (nx, ny) not in mines:
-                    return (dx, dy)
-        return None
-
-    # ==========================================================
-    # ESTADO
-    # ==========================================================
-    def make_state(self, head, fruits, body, mines, cols, rows, in_loop):
-        body_set = set(body)
-
-        if fruits:
-            fx, fy = min(fruits, key=lambda f: abs(f[0]-head[0]) + abs(f[1]-head[1]))
-            dx, dy = fx - head[0], fy - head[1]
-            dist = abs(dx) + abs(dy)
         else:
-            dx = dy = dist = -1
+            self.memory.append(body[-1])
 
-        free_space = self.count_reachable(head, body_set, mines, cols, rows)
+        # ---------- Detectar bucle ----------
+        in_loop = list(self.memory) == body
 
-        blocked_x = int(any(
-            (head[0] + i * (1 if dx > 0 else -1), head[1]) in body_set
-            for i in range(1, abs(dx) + 1)
-        )) if dx != 0 else 0
+        # ---------- 1️⃣ Ir hacia frutas ----------
+        if fruits:
+            move = self.move_to_fruit(head, body, tail, fruits, mines, cols, rows, neighbors)
+            if move:
+                return move
 
-        blocked_y = int(any(
-            (head[0], head[1] + i * (1 if dy > 0 else -1)) in body_set
-            for i in range(1, abs(dy) + 1)
-        )) if dy != 0 else 0
+        # ---------- 2️⃣ Reorganización anti-bucle ----------
+        if in_loop:
+            move = self.reorganization_move(head, body, mines, cols, rows)
+            if move and self.is_safe_move(head, move, body, mines, cols, rows):
+                return move
 
-        return [
-            dx, dy, dist,
-            len(body),
-            free_space,
-            blocked_x,
-            blocked_y,
-            int(in_loop)
-        ]
+        # ---------- 3️⃣ Seguir la cola ----------
+        path_to_tail = self.a_star(head, tail, body_set, tail, mines, cols, rows)
+        if path_to_tail:
+            step = path_to_tail[0]
+            return (step[0]-head[0], step[1]-head[1])
+
+        # ---------- 4️⃣ Fallback Hamiltoniano ----------
+        return self.get_hamiltonian_move(juego)
 
     # ==========================================================
-    # MOVIMIENTOS
+    # MOVIMIENTO HACIA FRUTAS
     # ==========================================================
-    def move_to_fruit(self, head, body, tail, fruits, mines, cols, rows):
+    def move_to_fruit(self, head, body, tail, fruits, mines, cols, rows, neighbors):
         body_set = set(body)
-        for fruit in fruits:
-            path = self.a_star(head, fruit, body_set, tail, mines, cols, rows)
+        reachable_fruits = sorted(fruits, key=lambda f: abs(f[0]-head[0])+abs(f[1]-head[1]))
+        for target in reachable_fruits:
+            path = self.a_star(head, target, body_set, tail, mines, cols, rows, avoid_ring=True)
             if path:
-                nx, ny = path[0]
-                return (nx - head[0], ny - head[1])
-        return None
+                first = path[0]
+                move = (first[0]-head[0], first[1]-head[1])
 
-    def follow_tail(self, head, tail, body_set, mines, cols, rows):
-        path = self.a_star(head, tail, body_set, tail, mines, cols, rows)
-        if path:
-            nx, ny = path[0]
-            return (nx - head[0], ny - head[1])
-        return None
+                # Evitar mina si hay alternativa
+                if first in mines:
+                    for dx, dy in neighbors:
+                        alt = (head[0]+dx, head[1]+dy)
+                        if alt not in mines and self.is_safe_move(head, (dx, dy), body, mines, cols, rows):
+                            move = (dx, dy)
+                            break
 
-    def break_loop_random(self, head, body_set, mines, cols, rows):
-        dirs = [(-1,0),(1,0),(0,-1),(0,1)]
-        random.shuffle(dirs)
-        for dx, dy in dirs:
-            nx, ny = head[0]+dx, head[1]+dy
-            if 0<=nx<cols and 0<=ny<rows and (nx,ny) not in body_set and (nx,ny) not in mines:
-                return (dx, dy)
-        return None
-
-    def get_safe_random(self, head, body_set, mines, cols, rows):
-        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
-            nx, ny = head[0]+dx, head[1]+dy
-            if 0<=nx<cols and 0<=ny<rows and (nx,ny) not in body_set and (nx,ny) not in mines:
-                return (dx, dy)
+                if self.is_safe_move(head, move, body, mines, cols, rows):
+                    return move
         return None
 
     # ==========================================================
-    # PATHFINDING
+    # A* PATHFINDING (evita anillo externo opcionalmente)
     # ==========================================================
-    def a_star(self, start, goal, body, tail, mines, cols, rows):
+    def a_star(self, start, goal, body, tail, mines, cols, rows, avoid_ring=False):
         def h(a,b): return abs(a[0]-b[0]) + abs(a[1]-b[1])
+
+        neighbors = [(-1,0),(1,0),(0,-1),(0,1)]
         frontier = [(0, start)]
-        came = {start: None}
+        came_from = {start: None}
         cost = {start: 0}
 
         while frontier:
-            _, cur = heapq.heappop(frontier)
-            if cur == goal:
+            _, current = heapq.heappop(frontier)
+            if current == goal:
                 break
-            for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
-                nxt = (cur[0]+dx, cur[1]+dy)
-                if not (0<=nxt[0]<cols and 0<=nxt[1]<rows): continue
+            for dx, dy in neighbors:
+                nxt = (current[0]+dx, current[1]+dy)
+                if not (0 <= nxt[0] < cols and 0 <= nxt[1] < rows): continue
                 if nxt in body and nxt != tail: continue
-                if nxt in mines: continue
-                new_cost = cost[cur] + 1
+                if avoid_ring and (nxt[0]==0 or nxt[0]==cols-1 or nxt[1]==0 or nxt[1]==rows-1) and nxt != goal:
+                    continue
+
+                extra = 20 if nxt in mines else 0
+                new_cost = cost[current] + 1 + extra
                 if nxt not in cost or new_cost < cost[nxt]:
                     cost[nxt] = new_cost
                     heapq.heappush(frontier, (new_cost + h(nxt, goal), nxt))
-                    came[nxt] = cur
+                    came_from[nxt] = current
 
-        if goal not in came:
-            return None
+        if goal not in came_from: return None
 
-        path = []
-        cur = goal
+        path, cur = [], goal
         while cur != start:
             path.append(cur)
-            cur = came[cur]
+            cur = came_from[cur]
         path.reverse()
         return path
 
-    def count_reachable(self, start, body, mines, cols, rows):
-        q = deque([start])
-        seen = {start}
+    # ==========================================================
+    # SAFETY CHECK
+    # ==========================================================
+    def is_safe_move(self, head, move, body, mines, cols, rows):
+        nx, ny = head[0]+move[0], head[1]+move[1]
+        new_head = (nx, ny)
+        if not(0 <= nx < cols and 0 <= ny < rows): return False
+        if new_head in body[:-1] or new_head in mines: return False
+
+        sim = body[1:] + [new_head]
+        sim_set = set(sim)
+
+        # Área alcanzable
+        q, seen = deque([new_head]), {new_head}
         while q:
-            x,y = q.popleft()
-            for dx,dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+            x, y = q.popleft()
+            for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
                 p = (x+dx, y+dy)
-                if 0<=p[0]<cols and 0<=p[1]<rows:
-                    if p not in seen and p not in body and p not in mines:
-                        seen.add(p)
-                        q.append(p)
+                if 0<=p[0]<cols and 0<=p[1]<rows and p not in seen and p not in sim_set and p not in mines:
+                    seen.add(p)
+                    q.append(p)
+        if len(seen) < len(sim)+2: return False
+
+        # Puede alcanzar la cola
+        if not self.path_exists(new_head, sim[0], sim_set, mines, cols, rows): return False
+        return True
+
+    def path_exists(self, start, goal, blocked, mines, cols, rows):
+        q, seen = deque([start]), {start}
+        while q:
+            x, y = q.popleft()
+            if (x, y) == goal: return True
+            for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+                p = (x+dx, y+dy)
+                if 0<=p[0]<cols and 0<=p[1]<rows and p not in seen and (p not in blocked or p == goal) and p not in mines:
+                    seen.add(p)
+                    q.append(p)
+        return False
+
+    # ==========================================================
+    # REORGANIZACIÓN ANTI-BUCLE MEJORADA
+    # ==========================================================
+    def reorganization_move(self, head, body, mines, cols, rows):
+        neighbors = [(-1,0),(1,0),(0,-1),(0,1)]
+        body_set = set(body)
+
+        # 1️⃣ Hueco interior más grande
+        best, best_free = None, -1
+        for dx, dy in neighbors:
+            nx, ny = head[0]+dx, head[1]+dy
+            if 1<=nx<cols-1 and 1<=ny<rows-1 and (nx,ny) not in body_set and (nx,ny) not in mines:
+                free = self.count_reachable((nx,ny), body_set, mines, cols, rows, avoid_ring=True)
+                if free > best_free:
+                    best_free = free
+                    best = (dx, dy)
+        if best: return best
+
+        # 2️⃣ Buscar cualquier movimiento seguro que permita zigzag
+        safe_moves = []
+        for dx, dy in neighbors:
+            nx, ny = head[0]+dx, head[1]+dy
+            new_head = (nx, ny)
+            if 0<=nx<cols and 0<=ny<rows and new_head not in body_set and new_head not in mines:
+                # Comprobar que no queda atrapado
+                sim = body[1:] + [new_head]
+                sim_set = set(sim)
+                reachable = self.count_reachable(new_head, sim_set, mines, cols, rows)
+                if reachable >= 3:  # al menos espacio para moverse y volver
+                    safe_moves.append((dx, dy))
+
+        if safe_moves:
+            # Priorizar movimiento con más espacio alrededor
+            best_move = max(safe_moves, key=lambda m: self.count_reachable((head[0]+m[0], head[1]+m[1]), body_set, mines, cols, rows))
+            return best_move
+
+        # 3️⃣ fallback: cualquier vecino seguro
+        for dx, dy in neighbors:
+            nx, ny = head[0]+dx, head[1]+dy
+            if 0<=nx<cols and 0<=ny<rows and (nx,ny) not in body_set and (nx,ny) not in mines:
+                return (dx, dy)
+
+        return None
+
+    def count_reachable(self, start, body_set, mines, cols, rows, avoid_ring=False):
+        q, seen = deque([start]), {start}
+        while q:
+            x, y = q.popleft()
+            for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+                p = (x+dx, y+dy)
+                if 0<=p[0]<cols and 0<=p[1]<rows and p not in seen and p not in body_set and p not in mines:
+                    if avoid_ring and (p[0]==0 or p[0]==cols-1 or p[1]==0 or p[1]==rows-1): continue
+                    seen.add(p)
+                    q.append(p)
         return len(seen)
 
-    def finalize_game(self, won=False):
-        """
-        Llamado por el motor cuando la partida termina.
-        """
-        self.on_game_over()
-
-# ==========================================================
+    # ==========================================================
+    # HAMILTONIAN FALLBACK
+    # ==========================================================
+    def get_hamiltonian_move(self, juego):
+        cols, rows = juego.casillas_x, juego.casillas_y
+        head = juego.snake.cuerpo[-1]
+        body = set(juego.snake.cuerpo)
+        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+            p = (head[0]+dx, head[1]+dy)
+            if 0<=p[0]<cols and 0<=p[1]<rows and p not in body:
+                return (dx, dy)
+        return juego.snake.direccion
+    
+    def finalize_game(self, won: bool):
+        pass

@@ -17,10 +17,10 @@ from Triggers.triggers_tiktok import run_triggers_tiktok
 pygame.init()
 
 # ================= CONFIG =================
-FPS = 30
-VELOCIDAD_BASE = 110
+FPS = 20
+VELOCIDAD_BASE = 8
 DANO_MINA = 3
-TAMAÑO_TABLERO_INICIAL = 10
+TAMAÑO_TABLERO_INICIAL = 12
 
 VERDE_CLARO = (170, 220, 170)
 VERDE_OSCURO = (130, 180, 130)
@@ -182,7 +182,7 @@ class Juego:
         if self.game_over:
             return
         self.game_over = True
-        self.game_over_countdown = 100  # ms cuenta atrás
+        self.game_over_countdown = 10000  # ms cuenta atrás
         self.game_over_start = pygame.time.get_ticks()
         # almacenar tiempo final
         self.game_over_time = pygame.time.get_ticks()

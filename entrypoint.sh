@@ -32,7 +32,7 @@ sleep 2
 # Streaming
 # ----------------------------
 ffmpeg -y \
-  -f x11grab -r 30 -s 720*1280 -i :99 \
+  -f x11grab -r 30 -s 1280*720 -i :99 \
   -f pulse -i stream_sink.monitor \
   -c:v libx264 -preset veryfast -pix_fmt yuv420p \
   -c:a aac -b:a 128k \

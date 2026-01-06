@@ -35,7 +35,7 @@ async def on_gift(event: GiftEvent):
     if amount >= 10:
         trigger_queue.put(7)  # mina
     if amount >= 50:
-        trigger_queue.put(0)  # mega crecer
+        trigger_queue.put(1)  # aumentar mapa
 
 
 @client.on(LikeEvent)
