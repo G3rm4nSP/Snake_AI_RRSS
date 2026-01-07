@@ -46,4 +46,7 @@ def run_tiktok_node():
             send_trigger(key)
 
     print(f"🎵 Nodo TikTok iniciado para {TIKTOK_USERNAME}")
-    client.run()
+    try:
+        client.run()
+    except Exception as e:
+        print(f"⚠️ TikTok error: {e}")
