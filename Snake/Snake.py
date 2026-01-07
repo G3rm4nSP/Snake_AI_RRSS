@@ -9,10 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from Player import PlayerAI
 # TRIGGERS_BOTS
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from Triggers.triggers_http import trigger_queue, run_triggers
-# TRIGGERS_TIKTOK
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from Triggers.triggers_tiktok import run_triggers_tiktok
+from Triggers.triggers import trigger_queue, run_triggers
 
 pygame.init()
 
@@ -566,7 +563,7 @@ class Juego:
             7: "Mina",
             8: "Shrink",
             9: "Reset",
-            0: "+100",
+            0: "+10",
         }
 
         cols = 5
@@ -716,10 +713,6 @@ juego = Juego()
 # Iniciar servidor de triggers externos
 run_triggers()
 
-# Iniciar triggers TikTok
-#run_triggers_tiktok(trigger_queue)
-#bloqueado por el momento para evitar dependencias externas
-
 while True:
     # ===== TRIGGERS EXTERNOS =====
     while not trigger_queue.empty():
@@ -728,7 +721,7 @@ while True:
         # Simular pulsación de tecla 0–9
         if key == 0:
             juego.key_counts[0] += 1
-            juego.snake.crecer(100)
+            juego.snake.crecer(10)
             juego.ai.set_difficulty(0)
 
         elif key == 1:
@@ -880,7 +873,7 @@ while True:
                     juego.trigger_game_over()
             if e.key == pygame.K_0:
                 juego.key_counts[0] = juego.key_counts.get(0, 0) + 1
-                juego.snake.crecer(100)
+                juego.snake.crecer(10)
                 juego.ai.set_difficulty(0)
             if e.key == pygame.K_9:
                 juego.key_counts[9] = juego.key_counts.get(9, 0) + 1

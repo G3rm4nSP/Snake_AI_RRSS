@@ -3,3 +3,4 @@ flask
 requests
 TikTokLive
 numpy
+twitchio>=2.8,<3.0
