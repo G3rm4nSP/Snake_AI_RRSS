@@ -1,5 +1,4 @@
 # /Triggers/triggers_mapping.py
-
 # Este diccionario unifica comentarios y donaciones
 # Comentario exacto o cantidad mínima de donación activa el trigger
 TRIGGERS = {
