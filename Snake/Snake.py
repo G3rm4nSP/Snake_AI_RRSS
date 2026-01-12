@@ -3,15 +3,21 @@ import random
 import os
 import sys
 import colorsys
-# Allow importing sibling package `Player` when running this script directly
+
+# ================= IA A* =================
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from Player import PlayerAI
+
+from Player import(
+    StarPathfinder,
+    StarExtensions,
+    Direction,
+    Position,
+    CellType
+)
+
 # TRIGGERS_BOTS
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from Triggers.triggers_http import trigger_queue, run_triggers
-# TRIGGERS_TIKTOK
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from Triggers.triggers_tiktok import run_triggers_tiktok
 
 pygame.init()
 
@@ -40,21 +46,50 @@ MENU_WIDTH = 360
 
 pantalla = pygame.display.set_mode((ANCHO, ALTO), pygame.FULLSCREEN)
 
-# Cargar iconos de assets (0.png .. 9.png)
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
-ICON_SIZE = 52
-icons = {}
-for i in range(0, 10):
-    path = os.path.join(ASSETS_DIR, f"{i}.png")
-    try:
-        img = pygame.image.load(path).convert_alpha()
-        icons[i] = pygame.transform.smoothscale(img, (ICON_SIZE, ICON_SIZE))
-    except Exception:
-        icons[i] = None
+# ================= IA ADAPTADOR =================
+
+class StarAI:
+    def __init__(self):
+        self.risk = 0
+
+    def set_difficulty(self, v):
+        self.risk = v
+
+    def get_next_move(self, juego):
+        cx, cy = juego.casillas_x, juego.casillas_y
+
+        # construir grid
+        grid = [[CellType.Empty.value for _ in range(cy)] for _ in range(cx)]
+
+        for x, y in juego.snake.cuerpo[:-1]:
+            grid[x][y] = CellType.SnakeBody.value
+
+        for x, y in juego.minas:
+            grid[x][y] = CellType.Wall.value
+
+        for x, y in juego.frutas:
+            grid[x][y] = CellType.Food.value
+
+        hx, hy = juego.snake.cuerpo[-1]
+        tx, ty = juego.snake.cuerpo[0]
+        fx, fy = juego.frutas[0] if juego.frutas else (hx, hy)
+
+        path = StarPathfinder.find_path(
+            grid,
+            Position(hx, hy),
+            Position(tx, ty),
+            Position(fx, fy)
+        )
+
+        if not path or path == "NOT_FOUND":
+            return None
+
+        d = StarExtensions.char_to_direction(path[0])
+        return d.value  # (dx, dy)
 
 # ================= UTIL =================
+
 def calcular_tam_casilla(cx, cy):
-    # Reservar espacio para el menú a la derecha
     available_width = max(ANCHO - MENU_WIDTH, 100)
     return min(available_width // cx, (ALTO - HUD_ALTO) // cy)
 
@@ -82,14 +117,11 @@ class Snake:
     def mover(self):
         if self.longitud <= 0 or not self.cuerpo:
             return False
-
         x, y = self.cuerpo[-1]
         dx, dy = self.direccion
         self.cuerpo.append((x + dx, y + dy))
-
         while len(self.cuerpo) > self.longitud:
             self.cuerpo.pop(0)
-
         return True
 
     def crecer(self, n=1):
@@ -113,12 +145,9 @@ class Juego:
         self.velocidad = VELOCIDAD_BASE
         self.en_juego = False
         self.reset_partida()
-        # IA y flags
-        self.ai = PlayerAI()
-        # activar IA por defecto
+        self.ai = StarAI()
         self.ai_enabled = True
         self.last_human_input = 0
-        # colores del tablero (pueden cambiar dinámicamente)
         self.board_light_color = VERDE_CLARO
         self.board_dark_color = VERDE_OSCURO
 
@@ -782,9 +811,6 @@ juego = Juego()
 # Iniciar servidor de triggers externos
 run_triggers()
 
-# Iniciar triggers TikTok
-#run_triggers_tiktok(trigger_queue)
-#bloqueado por el momento para evitar dependencias externas
 
 while True:
     # ===== TRIGGERS EXTERNOS =====
@@ -1012,19 +1038,23 @@ while True:
 
         # Avanzar posible transición de resize
         if getattr(juego, 'resize_active', False):
-            juego.resize_timer += dt
-            if juego.resize_timer >= juego.resize_duration:
-                # finalizar transición
+            # interpolar tamaño de celda
+            progreso = (pygame.time.get_ticks() - juego.resize_timer) / juego.resize_duration
+            progreso = min(progreso, 1.0)  # asegurarse que no exceda 1
+            juego.tam = int(juego.prev_tam + (juego.resize_to[0] - juego.resize_from[0]) * progreso)
+            
+            # cuando termine el resize
+            if progreso >= 1.0:
                 juego.resize_active = False
-                juego.resize_timer = juego.resize_duration
-                # asegurar que prev = cur
-                juego.prev_cuerpo = list(juego.cur_cuerpo)
-                juego.prev_frutas = list(juego.cur_frutas)
-                juego.prev_minas = list(juego.cur_minas)
-                juego.prev_tam = juego.tam
-                # comprobar victoria al terminar resize (nuevo área) usando longitud objetivo
-                if juego.snake.longitud >= (juego.casillas_x * juego.casillas_y):
-                    juego.win()
+                juego.tam = calcular_tam_casilla(juego.casillas_x, juego.casillas_y)
+            
+            # actualizar IA también si es necesario
+            if getattr(juego, 'ai_enabled', False):
+                state = juego.build_game_state()
+                nd = juego.ai.get_next_move(state)
+                if nd:
+                    juego.snake.cambiar_direccion(nd)
+
 
         juego.dibujar_tablero()
         juego.dibujar_elementos(alpha)

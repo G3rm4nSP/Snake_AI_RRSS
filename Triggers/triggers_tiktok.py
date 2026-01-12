@@ -65,7 +65,3 @@ def _run():
     print("🎥 Conectando a TikTok Live...")
     client.run()
 
-def run_triggers_tiktok(shared_queue):
-    init_queue(shared_queue)
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
