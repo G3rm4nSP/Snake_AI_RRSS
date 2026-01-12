@@ -1,3 +1,3 @@
-from .ai import PlayerAI
+from .ai import StarPlayer
 
-__all__ = ["PlayerAI"]
+__all__ = ["StarPlayer"]

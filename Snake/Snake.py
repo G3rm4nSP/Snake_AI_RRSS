@@ -3,10 +3,19 @@ import random
 import os
 import sys
 import colorsys
-import numpy as np
-# Allow importing sibling package `Player` when running this script directly
+
+
+# ================= IA A* =================
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from Player import PlayerAI
+
+from Player.ai import(
+    StarPathfinder,
+    StarExtensions,
+    Direction,
+    Position,
+    CellType
+)
+
 # TRIGGERS_BOTS
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from Triggers.triggers import trigger_queue, run_triggers
@@ -55,13 +64,56 @@ for i in range(0, 10):
     except Exception:
         icons[i] = None
 
-# Inicializar pygame mixer
-pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-pygame.mixer.music.load(os.path.join(ASSETS_DIR, "music.mp3"))
-pygame.mixer.music.play(-1)
-# Ejemplo de efecto
-efecto_click = pygame.mixer.Sound(os.path.join(ASSETS_DIR, "click1.mp3"))
-#efecto_click.play() para que suene
+# # Inicializar pygame mixer
+# pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+# pygame.mixer.music.load(os.path.join(ASSETS_DIR, "music.mp3"))
+# pygame.mixer.music.play(-1)
+# # Ejemplo de efecto
+# efecto_click = pygame.mixer.Sound(os.path.join(ASSETS_DIR, "click1.mp3"))
+# #efecto_click.play() para que suene
+
+# ================= IA ADAPTADOR =================
+
+class StarAI:
+    def __init__(self):
+        self.risk = 0
+
+    def set_difficulty(self, v):
+        self.risk = v
+
+    def get_next_move(self, juego):
+        cx, cy = juego.casillas_x, juego.casillas_y
+
+        # construir grid
+        grid = [[CellType.Empty.value for _ in range(cy)] for _ in range(cx)]
+
+        for x, y in juego.snake.cuerpo[:-1]:
+            grid[x][y] = CellType.SnakeBody.value
+
+        for x, y in juego.minas:
+            grid[x][y] = CellType.Wall.value
+
+        for x, y in juego.frutas:
+            grid[x][y] = CellType.Food.value
+
+        hx, hy = juego.snake.cuerpo[-1]
+        tx, ty = juego.snake.cuerpo[0]
+        fx, fy = juego.frutas[0] if juego.frutas else (hx, hy)
+
+        path = StarPathfinder.find_path(
+            grid,
+            Position(hx, hy),
+            Position(tx, ty),
+            Position(fx, fy)
+        )
+
+        if not path or path == "NOT_FOUND":
+            return None
+
+        d = StarExtensions.char_to_direction(path[0])
+        return d.value  # (dx, dy)
+
+
 
 # ================= UTIL =================
 def calcular_tam_casilla(cx, cy):
@@ -125,7 +177,7 @@ class Juego:
         self.en_juego = False
         self.reset_partida()
         # IA y flags
-        self.ai = PlayerAI()
+        self.ai = StarAI()
         # activar IA por defecto
         self.ai_enabled = True
         self.last_human_input = 0
