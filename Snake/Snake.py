@@ -15,9 +15,11 @@ pygame.init()
 
 # ================= CONFIG =================
 FPS = 20
-VELOCIDAD_BASE = 8
+VELOCIDAD_BASE = 10
 DANO_MINA = 3
 TAMAÑO_TABLERO_INICIAL = 12
+DEBUG = True  # o False para desactivar debug
+
 
 VERDE_CLARO = (170, 220, 170)
 VERDE_OSCURO = (130, 180, 130)
@@ -494,6 +496,35 @@ class Juego:
                 (px, py),
                 int(tam_render // 2) - 2
             )
+        # Dibujar debug si está activado
+        if getattr(self, 'ai', None) and DEBUG:
+            ai = self.ai
+            wm = getattr(ai, 'debug_weight_map', {})
+            if wm:
+                maxw = max(wm.values()) if wm.values() else 1.0
+                minw = min(wm.values()) if wm.values() else 0.0
+                span = max(1e-6, maxw - minw)
+                small_font = pygame.font.SysFont("consolas", 12)
+
+                for (x,y), cost in wm.items():
+                    norm = (cost - minw)/span
+                    alpha = int(200*(1.0-norm))
+                    surf = pygame.Surface((int(tam_render), int(tam_render)), pygame.SRCALPHA)
+                    surf.fill((20,200,80, alpha))
+                    pantalla.blit(surf, (x*int(tam_render), HUD_ALTO + y*int(tam_render)))
+                    txt = small_font.render(f"{cost:.1f}", True, (0,0,0))
+                    pantalla.blit(txt, (x*int(tam_render)+2, HUD_ALTO + y*int(tam_render)+2))
+
+            # dibujar camino
+            path = getattr(ai, 'debug_path', [])
+            if path and len(path) > 1:
+                for i, p in enumerate(path):
+                    px, py = p
+                    pygame.draw.rect(pantalla, (40,100,220), (px*int(tam_render), HUD_ALTO + py*int(tam_render), int(tam_render), int(tam_render)), 2)
+                    idx_txt = small_font.render(str(i), True, (40,100,220))
+                    pantalla.blit(idx_txt, (px*int(tam_render)+int(tam_render)//2-idx_txt.get_width()//2,
+                                            HUD_ALTO + py*int(tam_render)+int(tam_render)//2-idx_txt.get_height()//2))
+
 
     def dibujar_hud(self):
         # Calcular ancho HUD dinámico para evitar superposición con el menú
