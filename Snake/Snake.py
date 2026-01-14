@@ -3,6 +3,9 @@ import random
 import os
 import sys
 import colorsys
+import math, time
+from pygame import gfxdraw
+
 
 
 # ================= IA A* =================
@@ -24,9 +27,9 @@ pygame.init()
 
 # ================= CONFIG =================
 FPS = 20
-VELOCIDAD_BASE = 10
+VELOCIDAD_BASE = 5
 DANO_MINA = 3
-TAMAÑO_TABLERO_INICIAL = 12
+TAMAÑO_TABLERO_INICIAL = 10
 DEBUG = True  # o False para desactivar debug
 
 
@@ -64,10 +67,24 @@ for i in range(0, 10):
     except Exception:
         icons[i] = None
 
-# # Inicializar pygame mixer
-# pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-# pygame.mixer.music.load(os.path.join(ASSETS_DIR, "music.mp3"))
-# pygame.mixer.music.play(-1)
+# Cargar todas las frutas en un diccionario
+NUM_FRUTAS = 12
+frutas = {}
+for i in range(1, NUM_FRUTAS + 1):
+    path = os.path.join(ASSETS_DIR, f"fruta{i}.png")
+    try:
+        img = pygame.image.load(path).convert_alpha()
+        # Escalar la fruta al tamaño que quieras
+        frutas[i] = pygame.transform.smoothscale(img, (ICON_SIZE, ICON_SIZE))
+    except Exception:
+        frutas[i] = None
+
+mina_img = pygame.image.load(os.path.join(ASSETS_DIR, "mina.png")).convert_alpha()
+
+# Inicializar pygame mixer
+pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+pygame.mixer.music.load(os.path.join(ASSETS_DIR, "music.mp3"))
+pygame.mixer.music.play(-1)
 # # Ejemplo de efecto
 # efecto_click = pygame.mixer.Sound(os.path.join(ASSETS_DIR, "click1.mp3"))
 # #efecto_click.play() para que suene
@@ -77,12 +94,18 @@ for i in range(0, 10):
 class StarAI:
     def __init__(self):
         self.risk = 0
+        self.first_move_done = False  # ⚡ variable para controlar el primer movimiento
 
     def set_difficulty(self, v):
         self.risk = v
 
     def get_next_move(self, juego):
         cx, cy = juego.casillas_x, juego.casillas_y
+
+        # ⚡ Primer movimiento obligatorio a la izquierda
+        if not self.first_move_done:
+            self.first_move_done = True
+            return Direction.Left.value  # (dx, dy)
 
         # construir grid
         grid = [[CellType.Empty.value for _ in range(cy)] for _ in range(cx)]
@@ -190,6 +213,7 @@ class Juego:
         self.tam = calcular_tam_casilla(self.casillas_x, self.casillas_y)
         self.snake = Snake(self.casillas_x, self.casillas_y)
         self.frutas = []
+        self.frutas_ids = {}
         self.minas = []
         self.game_over = False
         self.tiempo_inicio = pygame.time.get_ticks()
@@ -211,6 +235,8 @@ class Juego:
         self.prev_tam = self.tam
         self.prev_frutas = list(self.frutas)
         self.cur_frutas = list(self.frutas)
+        self.prev_frutas_ids = self.frutas_ids.copy()
+        self.cur_frutas_ids = self.frutas_ids.copy()
         self.prev_minas = list(self.minas)
         self.cur_minas = list(self.minas)
         # win / confeti
@@ -292,13 +318,17 @@ class Juego:
         # opciones que no sean minas
         options = [p for p in all_pos if p not in forbidden and p not in set(self.minas)]
         if options:
-            self.frutas.append(random.choice(options))
+            pos = random.choice(options)
+            self.frutas.append(pos)
+            self.frutas_ids[pos] = random.randint(1, NUM_FRUTAS)
             return
 
         # si no hay opciones sin minas, permitir sobreponer a mina (pero no al cuerpo)
         options2 = [p for p in all_pos if p not in forbidden]
         if options2:
-            self.frutas.append(random.choice(options2))
+            pos = random.choice(options)
+            self.frutas.append(pos)
+            self.frutas_ids[pos] = random.randint(1, NUM_FRUTAS)
             return
 
         # caso extremo: todo ocupado por cuerpo (muy raro) -> no hacemos nada
@@ -317,6 +347,8 @@ class Juego:
         from_x, from_y = self.casillas_x, self.casillas_y
         self.casillas_x += 2
         self.casillas_y += 2
+        self.expandir_offsets(self.casillas_x, self.casillas_y)
+
         self.snake.cuerpo = [(x + 1, y + 1) for x, y in self.snake.cuerpo]
         self.frutas = [(x + 1, y + 1) for x, y in self.frutas]
         self.minas = [(x + 1, y + 1) for x, y in self.minas]
@@ -344,6 +376,8 @@ class Juego:
         from_x, from_y = self.casillas_x, self.casillas_y
         self.casillas_x -= 2
         self.casillas_y -= 2
+        self.expandir_offsets(self.casillas_x, self.casillas_y)
+
         self.snake.cuerpo = [(x - 1, y - 1) for x, y in self.snake.cuerpo
                              if 0 <= x - 1 < self.casillas_x and 0 <= y - 1 < self.casillas_y]
         self.frutas = [(x - 1, y - 1) for x, y in self.frutas
@@ -426,39 +460,116 @@ class Juego:
         if self.snake.longitud >= (self.casillas_x * self.casillas_y):
             self.win()
 
+    def expandir_offsets(self, new_cols, new_rows):
+        # expandir filas
+        for y in range(len(self.filas_offsets), new_rows + 1):
+            self.filas_offsets.append([random.randint(-5,5) for _ in range(new_cols + 1)])
+
+        # expandir columnas
+        for x in range(len(self.cols_offsets), new_cols + 1):
+            self.cols_offsets.append([random.randint(-5,5) for _ in range(new_rows + 1)])
+
+        # si ya existen filas/columnas, añadir solo lo que falta
+        for y in range(len(self.filas_offsets)):
+            while len(self.filas_offsets[y]) < new_cols + 1:
+                self.filas_offsets[y].append(random.randint(-5,5))
+
+        for x in range(len(self.cols_offsets)):
+            while len(self.cols_offsets[x]) < new_rows + 1:
+                self.cols_offsets[x].append(random.randint(-5,5))
+
+
     # ----- DIBUJO -----
+
+    def inicializar_tablero_alocado(self):
+        """
+        Llamar solo una vez al inicio para calcular offsets aleatorios de filas y columnas.
+        Esto crea un efecto de celdas tipo rombo/geométricas.
+        """
+        self.filas_offsets = []
+        self.cols_offsets = []
+
+        for y in range(self.casillas_y + 1):
+            # offset vertical de cada línea horizontal (altura de la fila)
+            self.filas_offsets.append([random.randint(-5, 5) for _ in range(self.casillas_x + 1)])
+
+        for x in range(self.casillas_x + 1):
+            # offset horizontal de cada línea vertical (anchura de la columna)
+            self.cols_offsets.append([random.randint(-5, 5) for _ in range(self.casillas_y + 1)])
+
     def dibujar_tablero(self):
-        # Determinar tam y cantidad de celdas interpolado si estamos redimensionando
-        if getattr(self, 'resize_active', False):
-            old_tam = getattr(self, 'prev_tam', self.tam)
-            new_tam = self.tam
-            alpha = min(self.resize_timer / max(self.resize_duration, 1), 1.0)
-            tam_render = int(old_tam * (1 - alpha) + new_tam * alpha)
-            # interpolar cols/rows entre resize_from y resize_to para evitar saltos
-            fx, fy = self.resize_from
-            tx, ty = self.resize_to
-            cols = max(1, int(round(fx * (1 - alpha) + tx * alpha)))
-            rows = max(1, int(round(fy * (1 - alpha) + ty * alpha)))
-        else:
-            tam_render = self.tam
-            cols = self.casillas_x
-            rows = self.casillas_y
+        tam_render = self.tam
+        cols = self.casillas_x
+        rows = self.casillas_y
+
+        # animación de color
+        t = time.time()
+        cx, cy = cols / 2, rows / 2
+        max_dist = (cx**2 + cy**2)**0.5
 
         for y in range(rows):
             for x in range(cols):
-                color = self.board_light_color if (x + y) % 2 == 0 else self.board_dark_color
-                pygame.draw.rect(
-                    pantalla,
-                    color,
-                    (x * tam_render, HUD_ALTO + y * tam_render, tam_render, tam_render)
+                # Color base
+                base_color = self.board_light_color if (x + y) % 2 == 0 else self.board_dark_color
+
+                # degradado radial (más oscuro hacia los bordes)
+                dist = ((x - cx)**2 + (y - cy)**2)**0.5
+                radial_factor = dist / max_dist
+
+                # animación sutil tipo “vibración de color”
+                max_factor = 0.85  # no pasar del 85% del color máximo
+                anim_factor = 0.10 * math.sin(t*2 + x*0.3 + y*0.3)
+
+                color = tuple(
+                    max(0, min(int(c * (1 - radial_factor*0.5 + anim_factor)), int(255*max_factor)))
+                    for c in base_color
                 )
 
-        pygame.draw.rect(
-            pantalla,
-            BORDE_ROJO,
-            (0, HUD_ALTO, cols * tam_render, rows * tam_render),
-            4
-        )
+
+                # Obtener las 4 esquinas de la celda usando offsets precomputados
+                top_left = (x * tam_render + self.cols_offsets[x][y], HUD_ALTO + y * tam_render + self.filas_offsets[y][x])
+                top_right = ((x+1) * tam_render + self.cols_offsets[x+1][y], HUD_ALTO + y * tam_render + self.filas_offsets[y][x+1])
+                bottom_right = ((x+1) * tam_render + self.cols_offsets[x+1][y+1], HUD_ALTO + (y+1) * tam_render + self.filas_offsets[y+1][x+1])
+                bottom_left = (x * tam_render + self.cols_offsets[x][y+1], HUD_ALTO + (y+1) * tam_render + self.filas_offsets[y+1][x])
+
+                # dibujar polígono (celda irregular)
+                pygame.draw.polygon(pantalla, color, [top_left, top_right, bottom_right, bottom_left])
+
+        # --- Borde del tablero ---
+        # Crear lista de puntos del perímetro usando offsets
+        bordes = []
+
+        # Lado superior
+        for x in range(cols + 1):
+            px = x * tam_render + self.cols_offsets[x][0]
+            py = HUD_ALTO + 0 * tam_render + self.filas_offsets[0][x]
+            bordes.append((px, py))
+
+        # Lado derecho
+        for y in range(1, rows + 1):
+            px = (cols) * tam_render + self.cols_offsets[cols][y]
+            py = HUD_ALTO + y * tam_render + self.filas_offsets[y][cols]
+            bordes.append((px, py))
+
+        # Lado inferior
+        for x in reversed(range(cols)):
+            px = x * tam_render + self.cols_offsets[x][rows]
+            py = HUD_ALTO + rows * tam_render + self.filas_offsets[rows][x]
+            bordes.append((px, py))
+
+        # Lado izquierdo
+        for y in reversed(range(1, rows)):
+            px = 0 * tam_render + self.cols_offsets[0][y]
+            py = HUD_ALTO + y * tam_render + self.filas_offsets[y][0]
+            bordes.append((px, py))
+
+        # # Dibujar polígono sólido de borde (color de fondo)
+        # pygame.draw.polygon(pantalla, (50, 50, 50), bordes)
+
+        # Opcional: línea roja encima para marcar perímetro
+        pygame.draw.lines(pantalla, BORDE_ROJO, True, bordes, 7)
+
+
 
     def _get_render_positions(self, alpha: float):
         prev = list(getattr(self, 'prev_cuerpo', self.snake.cuerpo))
@@ -481,6 +592,16 @@ class Juego:
             ry = py * (1 - alpha) + cy * alpha
             render.append((rx, ry))
         return render
+    
+    # Función para dibujar una fruta aleatoria en la pantalla
+    @staticmethod
+    def dibujar_fruta(pantalla, rx, ry, tam_render, fruta_id):
+        fruta_img = frutas[fruta_id]
+        if fruta_img:
+            size = int(tam_render)
+            fruta_img_redim = pygame.transform.smoothscale(fruta_img, (size, size))
+            pantalla.blit(fruta_img_redim, (int(rx - size/2), int(ry - size/2)))
+
 
     def dibujar_elementos(self, alpha_move=1.0):
         # calcular tam render (si estamos redimensionando interpolar)
@@ -507,7 +628,12 @@ class Juego:
                 c = cur_f[i] if i < len(cur_f) else cur_f[-1] if cur_f else p
                 rx = (p[0] * (1 - alpha_resize) + c[0] * alpha_resize) * tam_render + tam_render // 2
                 ry = HUD_ALTO + (p[1] * (1 - alpha_resize) + c[1] * alpha_resize) * tam_render + tam_render // 2
-                pygame.draw.circle(pantalla, FRUTA_COLOR, (int(rx), int(ry)), int(tam_render // 3))
+                fruta_id = self.frutas_ids.get(c, self.frutas_ids.get(p, 1))
+                Juego.dibujar_fruta(
+                    pantalla,
+                    int(rx), int(ry), int(tam_render // 1.5),
+                    fruta_id
+                )
 
             # minas
             for i in range(max(len(prev_m), len(cur_m))):
@@ -515,40 +641,38 @@ class Juego:
                 c = cur_m[i] if i < len(cur_m) else cur_m[-1] if cur_m else p
                 rx = (p[0] * (1 - alpha_resize) + c[0] * alpha_resize) * tam_render + tam_render // 2
                 ry = HUD_ALTO + (p[1] * (1 - alpha_resize) + c[1] * alpha_resize) * tam_render + tam_render // 2
-                pygame.draw.circle(pantalla, MINA_COLOR, (int(rx), int(ry)), int(tam_render // 3))
+                size = int(tam_render // 1.5)  # ajusta si quieres la mina más grande/pequeña
+                mina_scaled = pygame.transform.smoothscale(mina_img, (size, size))
+                pantalla.blit(
+                    mina_scaled,
+                    (int(rx - size // 2), int(ry - size // 2))
+                )
         else:
             for x, y in self.frutas:
-                pygame.draw.circle(
+                fruta_id = self.frutas_ids.get((x, y), 1)  # <-- usar ID fijo
+                Juego.dibujar_fruta(
                     pantalla,
-                    FRUTA_COLOR,
-                    (x * int(tam_render) + int(tam_render) // 2,
-                     HUD_ALTO + y * int(tam_render) + int(tam_render) // 2),
-                    int(tam_render) // 3
+                    x * int(tam_render) + int(tam_render)//2,
+                    HUD_ALTO + y * int(tam_render) + int(tam_render)//2,
+                    int(tam_render)//1.5,
+                    fruta_id
                 )
+
 
             for x, y in self.minas:
-                pygame.draw.circle(
-                    pantalla,
-                    MINA_COLOR,
-                    (x * int(tam_render) + int(tam_render) // 2,
-                     HUD_ALTO + y * int(tam_render) + int(tam_render) // 2),
-                    int(tam_render) // 3
+                rx = x * int(tam_render) + int(tam_render) // 2
+                ry = HUD_ALTO + y * int(tam_render) + int(tam_render) // 2
+
+                size = int(tam_render // 1.5)  # mismo tamaño que en resize
+                mina_scaled = pygame.transform.smoothscale(mina_img, (size, size))
+                pantalla.blit(
+                    mina_scaled,
+                    (int(rx - size // 2), int(ry - size // 2))
                 )
 
-        # Dibujar serpiente usando posiciones interpoladas por movimiento, y con tam render interpolado
-        render_positions = self._get_render_positions(alpha_move)
-        total = len(render_positions)
-        for i, (rxg, ryg) in enumerate(render_positions):
-            brillo = 1 - (i / max(total, 1)) * 0.6
-            color = hsv_color(self.snake.hue, 1, brillo)
-            px = int(rxg * tam_render + tam_render // 2)
-            py = int(HUD_ALTO + ryg * tam_render + tam_render // 2)
-            pygame.draw.circle(
-                pantalla,
-                color,
-                (px, py),
-                int(tam_render // 2) - 2
-            )
+        # --- Dibujar serpiente fluida ---
+        self.draw_snake_smooth(pantalla, tam_render, HUD_ALTO, alpha_move)
+
         # Dibujar debug si está activado
         if getattr(self, 'ai', None) and DEBUG:
             ai = self.ai
@@ -578,6 +702,91 @@ class Juego:
                     pantalla.blit(idx_txt, (px*int(tam_render)+int(tam_render)//2-idx_txt.get_width()//2,
                                             HUD_ALTO + py*int(tam_render)+int(tam_render)//2-idx_txt.get_height()//2))
 
+    def draw_snake_smooth(self, pantalla, tam_render, HUD_ALTO, alpha_move):
+        render_positions = self._get_render_positions(alpha_move)
+        total = len(render_positions)
+        if total < 2:
+            return
+
+        # Convertir a coordenadas de pantalla
+        screen_positions = [
+            (rxg * tam_render + tam_render // 2,
+            HUD_ALTO + ryg * tam_render + tam_render // 2)
+            for rxg, ryg in render_positions
+        ]
+
+        # Suavizar curvas usando Catmull-Rom
+        smooth_points = []
+        for i in range(total):
+            P0 = screen_positions[max(i-1, 0)]
+            P1 = screen_positions[i]
+            P2 = screen_positions[min(i+1, total-1)]
+            P3 = screen_positions[min(i+2, total-1)]
+            smooth_points.extend(Juego.catmull_rom_spline(P0, P1, P2, P3, n_points=5))
+
+        # Dibujar cuerpo gordito y degradado
+        for i in range(len(smooth_points)-1):
+            p1, p2 = smooth_points[i], smooth_points[i+1]
+            t = i / max(len(smooth_points)-1, 1)
+            size_factor = 0.9 + t * 0.4
+            grosor = int((tam_render // 2.6) * size_factor)
+
+            brillo = 0.4 + t * 0.6
+            color = hsv_color(self.snake.hue, 1, brillo)
+            pygame.draw.circle(pantalla, color, p1, max(1, grosor-2))
+
+        # --- Ojos en la nuca ---
+        # Elegimos el último punto del smooth para colocar los ojos (nuca)
+        px, py = smooth_points[-1]
+
+        # Calculamos la dirección de la cabeza para orientar los ojos
+        dir_x = smooth_points[-1][0] - smooth_points[-2][0]
+        dir_y = smooth_points[-1][1] - smooth_points[-2][1]
+        length = max((dir_x**2 + dir_y**2) ** 0.5, 0.001)
+        dir_x /= length
+        dir_y /= length
+
+        # Perpendicular para separar ojos a los lados
+        perp_x, perp_y = -dir_y, dir_x
+        eye_sep = grosor * 0.35   # separación lateral de los ojos
+        eye_r = max(2, grosor // 3)  # radio de los ojos
+
+        # Dibujar ambos ojos
+        for side in (-1, 1):
+            ex = int(px + perp_x * side * eye_sep)
+            ey = int(py + perp_y * side * eye_sep)
+            # ojo blanco
+            pygame.draw.circle(pantalla, (240, 240, 240), (ex, ey), eye_r)
+            # pupila negra
+            pygame.draw.circle(
+                pantalla,
+                (0, 0, 0),
+                (ex + int(dir_x * eye_r * 0.5), ey + int(dir_y * eye_r * 0.5)),
+                eye_r // 2
+            )
+
+        
+    def catmull_rom_spline(P0, P1, P2, P3, n_points=10):
+        """
+        Devuelve puntos interpolados entre P1 y P2 usando Catmull-Rom spline.
+        P0, P1, P2, P3 son tuplas (x, y)
+        n_points = número de puntos interpolados entre P1 y P2
+        """
+        points = []
+        for i in range(n_points):
+            t = i / (n_points - 1)
+            t2 = t * t
+            t3 = t2 * t
+            x = 0.5 * ((2*P1[0]) +
+                    (-P0[0] + P2[0])*t +
+                    (2*P0[0] - 5*P1[0] + 4*P2[0] - P3[0])*t2 +
+                    (-P0[0] + 3*P1[0] - 3*P2[0] + P3[0])*t3)
+            y = 0.5 * ((2*P1[1]) +
+                    (-P0[1] + P2[1])*t +
+                    (2*P0[1] - 5*P1[1] + 4*P2[1] - P3[1])*t2 +
+                    (-P0[1] + 3*P1[1] - 3*P2[1] + P3[1])*t3)
+            points.append((x, y))
+        return points
 
     def dibujar_hud(self):
         # Calcular ancho HUD dinámico para evitar superposición con el menú
@@ -785,12 +994,32 @@ class Juego:
         pantalla.blit(cd_big, (ANCHO//2 - cd_big.get_width()//2, ALTO//4 - 100))
  
     def dibujar_inicio(self):
-        msg = fuente_grande.render("Pulsa ESPACIO para iniciar", True, TEXTO_COLOR)
-        pantalla.blit(msg, (ANCHO//2 - msg.get_width()//2,
-                            ALTO//2 - msg.get_height()//2))
+        # Lista de líneas de texto a mostrar
+        lineas = [
+            "",
+            "===================",
+            "      Inserta      ",
+            "      un COIN      ",
+            "   para empezar    ",
+            "==================="
+        ]
+        
+        # Altura inicial
+        y_inicial = ALTO // 4
+        espacio = 50  # Espacio entre líneas
+
+        for i, linea in enumerate(lineas):
+            # Crear superficie de texto con fuente tipo consola
+            msg = fuente_grande.render(linea, True, TEXTO_COLOR)
+            # Centrar en la pantalla
+            pantalla.blit(msg, (ANCHO//2 - msg.get_width()//2, y_inicial + i * espacio))
+
+
 
 # ================= LOOP =================
 juego = Juego()
+juego.inicializar_tablero_alocado()  # esto prepara los offsets
+
 
 # Iniciar servidor de triggers externos
 run_triggers()

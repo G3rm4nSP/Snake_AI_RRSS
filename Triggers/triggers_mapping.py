@@ -12,7 +12,7 @@ TRIGGERS = {
     8: {"donation": 7, "comment": "!Shrink"},
     9: {"donation": 20, "comment": "!Reset"},
     0: {"donation": 15, "comment": "!+10"},
-    10: {"donation": None, "comment": "!start"}  # solo comentario
+    10: {"donation": None, "comment": "!coin"}  # solo comentario
 }
 
 def get_key_from_comment(comment):
