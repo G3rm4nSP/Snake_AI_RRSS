@@ -208,16 +208,119 @@ class StarEmptyCounter:
 
 class StarPathfinder:
 
+    def draw_grid(grid, head_pos, tail_pos, food_pos, path=None):
+        """
+        Dibuja el grid en la terminal.
+        path: lista de posiciones del camino a mostrar con '*'
+        """
+        rows = len(grid)
+        cols = len(grid[0])
+        path_set = set(path) if path else set()
+
+        for r in range(rows):
+            row_str = ""
+            for c in range(cols):
+                pos = Position(r, c)
+                if pos == head_pos:
+                    row_str += "H"
+                elif pos == tail_pos:
+                    row_str += "T"
+                elif pos == food_pos:
+                    row_str += "F"
+                elif pos in path_set:
+                    row_str += "*"
+                else:
+                    cell = grid[r][c]
+                    if cell == CellType.Empty.value:
+                        row_str += "."
+                    elif cell == CellType.Wall.value:
+                        row_str += "#"
+                    elif cell == CellType.SnakeBody.value:
+                        row_str += "B"
+                    else:
+                        row_str += "?"
+            print(row_str)
+        print("\n")
+
     @staticmethod
-    def find_path(grid, head_pos, tail_pos, food_pos):
+    def find_path(grid, head_pos, tail_pos, food_pos, snake_body):
+        # 1️⃣ Intentar ir a la comida
         path = StarPathfinder._find_path_to(
             grid, head_pos, tail_pos, food_pos
         )
-        if path == "NOT_FOUND":
-            path = StarPathfinder._find_path_to(
-                grid, head_pos, tail_pos, tail_pos
-            )
-        return path
+        print("PATHFINDER FOOD PATH:", path)
+
+        if path != "NOT_FOUND":
+            return path
+
+        # 2️⃣ Intentar seguir la cola
+        path = StarPathfinder._find_path_to(
+            grid, head_pos, tail_pos, tail_pos
+        )
+        print("PATHFINDER TAIL PATH:", path)
+
+        if path != "NOT_FOUND":
+            return path
+
+        # 3️⃣ No hay camino seguro → generar Hamiltoniano parcial
+        if snake_body:
+            # Buscamos el "punto B" según tu lógica: desde la cola hacia la cabeza
+            for pos in snake_body:
+                if StarPathfinder._exists_path(grid, head_pos, pos):
+                    h_path = StarPathfinder.hamiltonian_path(grid, head_pos, pos, snake_body)
+                    return "".join([StarExtensions.direction_to_char(d) for d in h_path])
+
+        # 4️⃣ Si no hay camino hacia ninguna parte → esperar (último recurso)
+        return None
+
+    def hamiltonian_path(grid, head_pos, target_pos, snake_body):
+        """
+        Genera un camino desde head_pos hasta target_pos intentando
+        cubrir la mayor cantidad de casillas libres posibles.
+        """
+        rows, cols = len(grid), len(grid[0])
+        visited = set(snake_body)  # posiciones ocupadas
+        path = []
+        stack = [(head_pos, [])]
+
+        while stack:
+            current, current_path = stack.pop()
+
+            if current == target_pos:
+                return current_path
+
+            if current in visited:
+                continue
+
+            visited.add(current)
+            for d in [Direction.Right, Direction.Down, Direction.Left, Direction.Up]:
+                next_pos = current.move_to(d)
+                if 0 <= next_pos.row < rows and 0 <= next_pos.column < cols:
+                    if grid[next_pos.row][next_pos.column] in (0, 4) and next_pos not in visited:
+                        stack.append((next_pos, current_path + [d]))
+
+        # Si no se puede llegar a target_pos, devolvemos camino más largo posible
+        return [d for d in current_path]
+
+    @staticmethod
+    def _exists_path(grid, start, end):
+        """Verifica si hay un camino libre entre start y end."""
+        rows, cols = len(grid), len(grid[0])
+        visited = set()
+        queue = deque([start])
+
+        while queue:
+            current = queue.popleft()
+            if current == end:
+                return True
+            visited.add(current)
+            for d in [Direction.Right, Direction.Down, Direction.Left, Direction.Up]:
+                p = current.move_to(d)
+                if 0 <= p.row < rows and 0 <= p.column < cols:
+                    if grid[p.row][p.column] in (0, 4) and p not in visited:
+                        queue.append(p)
+        return False
+
 
     @staticmethod
     def _find_path_to(grid, head_pos, tail_pos, target_pos):
@@ -259,7 +362,7 @@ class StarPathfinder:
                 p = current.position.move_to(d)
                 cell = grid[p.row][p.column]
 
-                if cell == 0 or (cell == 3 and target == tail) or cell == 4:
+                if cell == 0 or cell == 4 or (cell == CellType.SnakeBody.value and p == target.position):
                     neighbor = NodeBase(p)
                     if neighbor in processed:
                         continue
@@ -278,52 +381,94 @@ class StarPathfinder:
 # =========================
 # Player logic
 # =========================
-
 class StarPlayer:
+
+    @staticmethod
+    def _simulate_snake_move(grid, snake_body, next_head, food_pos):
+        """
+        Devuelve un grid temporal donde la serpiente se mueve hacia next_head.
+        Marca correctamente la cola si se va a comer fruta.
+        """
+        temp_grid = [row[:] for row in grid]
+        body = snake_body[:]
+
+        # agregamos la nueva cabeza
+        body.append(next_head)
+        if next_head == food_pos:
+            # la serpiente come: la cola se queda
+            for pos in body:
+                temp_grid[pos.row][pos.column] = CellType.SnakeBody.value
+        else:
+            # la serpiente no come: eliminamos la cola
+            tail = body.pop(0)
+            for pos in body:
+                temp_grid[pos.row][pos.column] = CellType.SnakeBody.value
+            temp_grid[tail.row][tail.column] = CellType.Empty.value
+
+        return temp_grid
 
     @staticmethod
     def decide(data, snake_go_to):
         rows = len(data.grid)
         columns = len(data.grid[0])
-
-        percentage = data.snake_size / (rows * columns)
+        snake_body = data.snake_body[:]  # lista de posiciones desde cola hasta cabeza
 
         directions = StarExtensions.get_star_directions(
             data.head_position, rows, columns
         )
 
-        options = [
-            data.head_position.move_to(d)
-            for d in directions
-            if data.grid[
-                data.head_position.move_to(d).row
-            ][
-                data.head_position.move_to(d).column
-            ] == 0
-        ]
+        safe_options = []
 
-        if percentage > 0.25 and len(options) == 2:
-            counts = []
-            for option in options:
-                data.grid[option.row][option.column] = CellType.SnakeBody.value
-                count = StarEmptyCounter.run(data.grid, option)
-                counts.append(count)
-                data.grid[option.row][option.column] = CellType.Empty.value
+        for d in directions:
+            next_pos = data.head_position.move_to(d)
+            cell = data.grid[next_pos.row][next_pos.column]
 
-            if counts[1] > counts[0]:
-                snake_go_to(directions[1])
-                return StarExtensions.direction_to_char(directions[1])
-            if counts[0] > counts[1]:
-                snake_go_to(directions[0])
-                return StarExtensions.direction_to_char(directions[0])
+            if cell != 0 and cell != 4:
+                continue
 
-        path = StarPathfinder.find_path(
-            data.grid,
-            data.head_position,
-            data.tail_position,
-            data.food_position
-        )
+            # simulamos el movimiento completo
+            temp_grid = StarPlayer._simulate_snake_move(data.grid, snake_body, next_pos, data.food_position)
 
-        first_dir = StarExtensions.char_to_direction(path[0])
-        snake_go_to(first_dir)
-        return path
+            # verificamos si hay camino seguro a la cola
+            path_to_tail = StarPathfinder._find_path_to(
+                temp_grid, next_pos, data.tail_position, data.tail_position
+            )
+
+            if path_to_tail != "NOT_FOUND":
+                safe_options.append((d, next_pos))
+
+        # =========================
+        # Elegimos movimiento seguro
+        # =========================
+        if not safe_options:
+            # No hay movimientos que mantengan camino a la cola → maximizamos espacio libre
+            max_space = -1
+            best_dir = directions[0]
+
+            for d in directions:
+                next_pos = data.head_position.move_to(d)
+                cell = data.grid[next_pos.row][next_pos.column]
+                if cell != 0 and cell != 4:
+                    continue
+
+                temp_grid = StarPlayer._simulate_snake_move(data.grid, snake_body, next_pos, data.food_position)
+                empty_count = StarEmptyCounter.run(temp_grid, next_pos)
+
+                if empty_count > max_space:
+                    max_space = empty_count
+                    best_dir = d
+
+            snake_go_to(best_dir)
+            return StarExtensions.direction_to_char(best_dir)
+
+        # =========================
+        # Si hay movimientos seguros → preferimos comida
+        # =========================
+        for d, pos in safe_options:
+            if pos == data.food_position:
+                snake_go_to(d)
+                return StarExtensions.direction_to_char(d)
+
+        # sino, cualquiera de los seguros
+        snake_go_to(safe_options[0][0])
+        return StarExtensions.direction_to_char(safe_options[0][0])

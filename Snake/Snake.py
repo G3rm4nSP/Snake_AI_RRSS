@@ -104,7 +104,8 @@ class StarAI:
             grid,
             Position(hx, hy),
             Position(tx, ty),
-            Position(fx, fy)
+            Position(fx, fy),
+            juego.snake.cuerpo
         )
 
         if not path or path == "NOT_FOUND":
@@ -132,8 +133,8 @@ class Snake:
 
     def reset(self, cx, cy):
         self.direccion = (1, 0)
-        self.cuerpo = [(cx // 2, cy // 2)]
         self.longitud = 5
+        self.cuerpo = [(cx//2 - i, cy//2) for i in range(self.longitud)]
         self.hue = 0.0
 
     def cambiar_direccion(self, nueva):
@@ -707,7 +708,6 @@ class Juego:
             self.confeti.append(p)
 
     def dibujar_win(self, dt):
-        self.ai.finalize_game(won=True)  # won=False si murió
         # fondo semi-transparente
         s = pygame.Surface((ANCHO, ALTO), pygame.SRCALPHA)
         s.fill((0, 0, 0, 180))
@@ -752,7 +752,6 @@ class Juego:
             pantalla.blit(big, (ANCHO//2 - big.get_width()//2, ALTO//4 - 100))
 
     def dibujar_game_over(self, dt):
-        self.ai.finalize_game(won=False)  # won=False si murió
         # fondo semi-transparente
         s = pygame.Surface((ANCHO, ALTO), pygame.SRCALPHA)
         s.fill((0, 0, 0, 190))
