@@ -24,13 +24,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from Triggers.triggers import trigger_queue, run_triggers
 
 pygame.init()
+pygame.mouse.set_visible(False)
 
 # ================= CONFIG =================
 FPS = 20
 VELOCIDAD_BASE = 5
 DANO_MINA = 3
 TAMAÑO_TABLERO_INICIAL = 10
-DEBUG = True  # o False para desactivar debug
+DEBUG = False  # o False para desactivar debug
 
 
 VERDE_CLARO = (170, 220, 170)
@@ -789,52 +790,36 @@ class Juego:
         return points
 
     def dibujar_hud(self):
-        # Calcular ancho HUD dinámico para evitar superposición con el menú
+        # Ancho HUD dinámico para evitar superposición con el menú
         max_hud_w = max(ANCHO - MENU_WIDTH - 40, 120)
         hud_w = min(520, max_hud_w)
-        hud_h = 44
+        hud_h = 36  # más bajo que antes
         s = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
         s.fill((10, 10, 14, 200))
         pantalla.blit(s, ((ANCHO - hud_w)//2, 6))
 
-        # Estadísticas colocando etiquetas cortas y colores claros
-        x_cursor = 18
-        gap = 18
-        fuente_small = pygame.font.SysFont("consolas", 18)
+        # Estadísticas
+        x_cursor = 12
+        gap = 12
+        fuente_small = pygame.font.SysFont("consolas", 14)  # fuente más pequeña
 
         def draw_stat(icon_color, label, value):
             nonlocal x_cursor
-            # pequeño icono circular
-            pygame.draw.circle(pantalla, icon_color, (x_cursor + 8, 14 + hud_h//2 - 2), 6)
-            x_cursor += 18
+            pygame.draw.circle(pantalla, icon_color, (x_cursor + 6, 6 + hud_h//2), 5)  # icono más pequeño
+            x_cursor += 14
             lbl = fuente_small.render(label, True, (200, 200, 200))
-            pantalla.blit(lbl, (x_cursor, 14))
-            x_cursor += lbl.get_width() + 6
+            pantalla.blit(lbl, (x_cursor, 6))
+            x_cursor += lbl.get_width() + 4
             val = fuente_small.render(str(value), True, (255, 255, 255))
-            pantalla.blit(val, (x_cursor, 14))
+            pantalla.blit(val, (x_cursor, 6))
             x_cursor += val.get_width() + gap
 
+        # Stats principales
         draw_stat((120,220,120), "Len", f"{self.snake.longitud}")
         draw_stat((220,180,80), "Spd", f"{self.velocidad}")
         draw_stat((200,200,200), "Map", f"{self.casillas_x}x{self.casillas_y}")
         draw_stat((180,200,255), "Time", f"{self.tiempo_vivo():.1f}s")
-
-        # Indicador IA (ON/OFF) y riesgo
-        try:
-            ai_on = getattr(self, 'ai_enabled', False)
-            ai_risk = getattr(self, 'ai', None).risk if getattr(self, 'ai', None) is not None else 0
-            ai_color = (120, 255, 120) if ai_on else (220, 120, 120)
-            pygame.draw.circle(pantalla, ai_color, (x_cursor + 8, 14 + hud_h//2 - 2), 6)
-            x_cursor += 18
-            txt = fuente_small.render('AI', True, (200,200,200))
-            pantalla.blit(txt, (x_cursor, 14))
-            x_cursor += txt.get_width() + 6
-            val = fuente_small.render(f"{'ON' if ai_on else 'OFF'} r{ai_risk}", True, (255,255,255))
-            pantalla.blit(val, (x_cursor, 14))
-            x_cursor += val.get_width() + gap
-        except Exception:
-            pass
-
+    
     def dibujar_menu(self):
         y0 = ALTO - MENU_HEIGHT
         pygame.draw.rect(
