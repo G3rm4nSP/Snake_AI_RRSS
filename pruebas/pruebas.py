@@ -119,21 +119,24 @@ def setup_recorder(pantalla, grabador):
         
         while True:
             try:
-                # Obtener array de pygame (width, height, 3)
-                arr = pygame.surfarray.array3d(pantalla)
+                # Capturar usando PixelArray (más rápido)
+                frame = pygame.surfarray.array3d(pantalla)
                 
-                # Copiar y transponer a (height, width, 3)
-                frame = np.transpose(arr, (1, 0, 2)).copy()
-                frame = np.ascontiguousarray(frame)
+                # Transponer: pygame da (w, h, 3) -> queremos (h, w, 3)
+                frame = np.transpose(frame, (1, 0, 2))
                 
-                # RGB a BGR
+                # Hacer copia inmediata
+                frame = frame.copy()
+                
+                # Convertir RGB a BGR
                 frame = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_RGB2BGR)
                 
                 grabador.agregar_frame(frame)
             except:
                 pass
     
-    # Iniciar en thread daemon
-    Thread(target=capturador, daemon=True).start()
+    # Iniciar en thread daemon (baja prioridad)
+    t = Thread(target=capturador, daemon=True)
+    t.start()
     
     return grabador

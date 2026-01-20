@@ -1372,14 +1372,4 @@ while True:
 
     pygame.display.flip()
     
-    # ================= GRABACIÓN DE FRAME =================
-    if GRABACION and recorder:
-        try:
-            import cv2
-            arr = pygame.surfarray.array3d(pantalla)
-            frame = np.transpose(arr, (1, 0, 2))
-            frame = np.ascontiguousarray(frame.astype(np.uint8))
-            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            recorder.agregar_frame(frame)
-        except:
-            pass  # Ignorar errores de grabación
+    # La captura de frames ocurre en thread separado de setup_recorder
