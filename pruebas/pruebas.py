@@ -9,6 +9,7 @@ from collections import deque
 from threading import Thread
 import os
 from datetime import datetime
+import time
 
 # ============= CONFIGURACIÓN =============
 BUFFER_SECONDS = 10  # Segundos para derrota
@@ -25,16 +26,26 @@ class Grabador:
         
         os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    def agregar_frame(self, frame):
-        """Agregar un frame al buffer"""
-        if frame is None:
+    def agregar_frame(self, frame_rgb):
+        """Agregar un frame al buffer - recibe RGB desde pygame"""
+        if frame_rgb is None:
             return
         
-        # Frame ya viene en BGR desde pygame
-        self.buffer_frames.append(frame.copy())
-        
-        if self.grabando_victoria:
-            self.frames_victoria.append(frame.copy())
+        try:
+            # Copiar frame
+            frame = frame_rgb.copy()
+            
+            # Convertir RGB -> BGR para OpenCV
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            
+            # Agregar al buffer circular
+            self.buffer_frames.append(frame)
+            
+            # Agregar a victorias si estamos grabando
+            if self.grabando_victoria:
+                self.frames_victoria.append(frame)
+        except:
+            pass
     
     def iniciar_partida(self):
         """Comenzar grabación de nueva partida"""
@@ -43,7 +54,7 @@ class Grabador:
     
     def guardar_derrota(self):
         """Guardar video de derrota"""
-        if not self.buffer_frames:
+        if not self.buffer_frames or len(self.buffer_frames) == 0:
             return
         
         self.grabando_victoria = False
@@ -62,7 +73,7 @@ class Grabador:
     
     def guardar_victoria(self):
         """Guardar video de victoria"""
-        if not self.frames_victoria:
+        if not self.frames_victoria or len(self.frames_victoria) == 0:
             return
         
         self.grabando_victoria = False
@@ -81,29 +92,39 @@ class Grabador:
     
     def _escribir_video(self, frames, archivo, velocidad):
         """Escribir video a archivo (corre en thread separado)"""
-        if not frames:
+        if not frames or len(frames) == 0:
             return
         
         try:
+            # Obtener dimensiones del primer frame
             h, w = frames[0].shape[:2]
+            
+            # FPS de salida ajustado por velocidad
             fps_salida = int(FPS * velocidad)
             
-            writer = cv2.VideoWriter(
-                archivo,
-                cv2.VideoWriter_fourcc(*'mp4v'),
-                fps_salida,
-                (w, h)
-            )
+            # Crear VideoWriter con codec H.264
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(archivo, fourcc, fps_salida, (w, h))
             
-            for frame in frames:
-                if frame.shape[:2] != (h, w):
+            if not writer.isOpened():
+                raise Exception("No se pudo crear VideoWriter")
+            
+            # Escribir cada frame
+            for i, frame in enumerate(frames):
+                # Asegurar que el frame tiene las dimensiones correctas
+                if frame.shape[0] != h or frame.shape[1] != w:
                     frame = cv2.resize(frame, (w, h))
-                writer.write(frame)
+                
+                # Escribir frame
+                ret = writer.write(frame)
+                if not ret:
+                    raise Exception(f"No se pudo escribir frame {i}")
             
             writer.release()
-            print(f"✓ Video: {os.path.basename(archivo)}")
+            print(f"✓ Video grabado: {os.path.basename(archivo)}")
+            
         except Exception as e:
-            print(f"✗ Error: {e}")
+            print(f"✗ Error escribiendo video: {e}")
 
 
 def init_recorder(fps=FPS, buffer_seconds=BUFFER_SECONDS, output_dir=OUTPUT_DIR):
@@ -119,24 +140,29 @@ def setup_recorder(pantalla, grabador):
         
         while True:
             try:
-                # Capturar usando PixelArray (más rápido)
-                frame = pygame.surfarray.array3d(pantalla)
+                # Usar pygame.surfarray.array3d para acceso directo
+                # array3d devuelve (width, height, 3) en formato RGB
+                pixels = pygame.surfarray.array3d(pantalla)
                 
-                # Transponer: pygame da (w, h, 3) -> queremos (h, w, 3)
-                frame = np.transpose(frame, (1, 0, 2))
+                # Transponer de (width, height, 3) a (height, width, 3)
+                # Hacer copia contiguous para asegurar compatibilidad
+                frame = np.transpose(pixels, (1, 0, 2))
+                frame = np.ascontiguousarray(frame)
                 
-                # Hacer copia inmediata
-                frame = frame.copy()
+                # Convertir a uint8
+                frame = frame.astype(np.uint8)
                 
-                # Convertir RGB a BGR
-                frame = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_RGB2BGR)
-                
+                # Agregar al grabador
                 grabador.agregar_frame(frame)
-            except:
+                
+                # Small delay para no saturar
+                time.sleep(0.001)
+                
+            except Exception as e:
                 pass
     
-    # Iniciar en thread daemon (baja prioridad)
-    t = Thread(target=capturador, daemon=True)
-    t.start()
+    # Iniciar en thread daemon
+    capture_thread = Thread(target=capturador, daemon=True)
+    capture_thread.start()
     
     return grabador
