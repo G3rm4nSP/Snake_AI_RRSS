@@ -228,7 +228,7 @@ class Juego:
         # Iniciar grabación de nueva partida
         if GRABACION and recorder:
             try:
-                recorder.start_game()
+                recorder.iniciar_partida()
             except:
                 pass
         
@@ -286,7 +286,7 @@ class Juego:
         # Guardar video de derrota
         if GRABACION and recorder:
             try:
-                recorder.on_loss()
+                recorder.guardar_derrota()
             except:
                 pass
         
@@ -525,7 +525,7 @@ class Juego:
         # Guardar video de victoria
         if GRABACION and recorder:
             try:
-                recorder.on_win()
+                recorder.guardar_victoria()
             except:
                 pass
         
@@ -1374,6 +1374,11 @@ while True:
     # ================= GRABACIÓN DE FRAME =================
     if GRABACION and recorder:
         try:
-            recorder.add_frame(pygame.surfarray.array3d(pantalla))
+            import cv2
+            arr = pygame.surfarray.array3d(pantalla)
+            frame = np.transpose(arr, (1, 0, 2))
+            frame = np.ascontiguousarray(frame.astype(np.uint8))
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            recorder.agregar_frame(frame)
         except:
             pass  # Ignorar errores de grabación
