@@ -68,7 +68,10 @@ class VideoRecorder:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = os.path.join(self.output_dir, f"{timestamp}_game{self.game_number}_loss.mp4")
         
-        self._write_video(list(self.frame_buffer), filename)
+        # Iniciar escritura en thread separado (NO bloquea el juego)
+        frames_copy = list(self.frame_buffer)
+        thread = Thread(target=self._write_video, args=(frames_copy, filename, 1.0), daemon=True)
+        thread.start()
         self.game_number += 1
     
     def on_win(self):
@@ -80,30 +83,36 @@ class VideoRecorder:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = os.path.join(self.output_dir, f"{timestamp}_game{self.game_number}_win_fullgame.mp4")
         
-        self._write_video(self.win_frames, filename, speed=2.0)
+        # Iniciar escritura en thread separado (NO bloquea el juego)
+        frames_copy = list(self.win_frames)
+        thread = Thread(target=self._write_video, args=(frames_copy, filename, 2.0), daemon=True)
+        thread.start()
         self.game_number += 1
     
     def _write_video(self, frames, filename, speed=1.0):
-        """Escribir video a archivo en thread separado"""
+        """Escribir video a archivo en thread separado (NO bloquea)"""
         if not frames or len(frames) == 0:
             return
         
-        # Obtener resolución del primer frame
-        h, w = frames[0].shape[:2]
-        
-        # Crear video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        fps_output = int(self.fps * speed)
-        out = cv2.VideoWriter(filename, fourcc, fps_output, (w, h))
-        
-        # Escribir frames
-        for frame in frames:
-            if frame.shape[:2] != (h, w):
-                frame = cv2.resize(frame, (w, h))
-            out.write(frame)
-        
-        out.release()
-        print(f"▶ Video grabado: {os.path.basename(filename)}")
+        try:
+            # Obtener resolución del primer frame
+            h, w = frames[0].shape[:2]
+            
+            # Crear video writer con codec MP4
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fps_output = int(self.fps * speed)
+            out = cv2.VideoWriter(filename, fourcc, fps_output, (w, h))
+            
+            # Escribir frames
+            for frame in frames:
+                if frame.shape[:2] != (h, w):
+                    frame = cv2.resize(frame, (w, h))
+                out.write(frame)
+            
+            out.release()
+            print(f"▶ Video grabado: {os.path.basename(filename)}")
+        except Exception as e:
+            print(f"✗ Error grabando video: {e}")
 
 
 def init_recorder(fps=FPS_RECORDING, buffer_seconds=LOSS_VIDEO_SECONDS, output_dir=OUTPUT_DIR):
