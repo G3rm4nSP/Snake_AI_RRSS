@@ -123,14 +123,12 @@ def setup_recorder(screen_surface, recorder):
         import pygame
         while True:
             try:
-                # Capturar array del surface (width, height, 3)
-                surface_array = pygame.surfarray.array3d(screen_surface)
+                # Capturar array del surface tal cual viene
+                frame = pygame.surfarray.array3d(screen_surface)
                 
-                # Transponer a (height, width, 3) y hacer copia contiguous
-                frame = np.transpose(surface_array, (1, 0, 2)).copy()
-                
-                # Asegurar que es contiguous en memoria
-                frame = np.ascontiguousarray(frame)
+                # Intercambiar width/height para obtener formato correcto
+                # pygame devuelve (width, height, 3), necesitamos (height, width, 3)
+                frame = np.swapaxes(frame, 0, 1)
                 
                 # Convertir RGB a BGR para OpenCV
                 frame = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_RGB2BGR)
