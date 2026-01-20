@@ -17,6 +17,13 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Crea un usuario no root
+RUN useradd -m -u 1000 appuser
+
+# Configura PulseAudio para el usuario no root
+RUN mkdir -p /run/pulse && \
+    chown -R appuser:appuser /run/pulse
+
 WORKDIR /app
 
 # Instala dependencias Python
@@ -29,8 +36,12 @@ COPY . .
 # Da permisos al entrypoint
 RUN chmod +x /app/entrypoint.sh
 
+# Cambia al usuario no root
+USER appuser
+
 # Exponemos un puerto (opcional, no estrictamente necesario para RTMP)
 EXPOSE 8888
 
 # Entrypoint
 CMD ["/app/entrypoint.sh"]
+
