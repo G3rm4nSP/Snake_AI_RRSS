@@ -1064,7 +1064,44 @@ juego.inicializar_tablero_alocado()  # esto prepara los offsets
 if GRABACION and GRABACION_DISPONIBLE:
     try:
         recorder = init_recorder(fps=FPS, output_dir="videos")
-        capturer = setup_recorder(pantalla, recorder)
+        
+        # Pasar GRABACION como referencia global para el capturador
+        def _setup_con_grabacion():
+            import sys
+            import inspect
+            
+            # Obtener el módulo actual (Snake.py)
+            frame_actual = inspect.currentframe()
+            modulo_actual = inspect.getmodule(frame_actual)
+            
+            def capturador_con_grabacion():
+                import pygame
+                import time
+                
+                while True:
+                    try:
+                        # Acceder a la variable GRABACION del módulo actual
+                        grabacion_local = getattr(modulo_actual, 'GRABACION', False)
+                        
+                        pixels = pygame.surfarray.array3d(pantalla)
+                        frame = np.transpose(pixels, (1, 0, 2))
+                        frame = np.ascontiguousarray(frame)
+                        frame = frame.astype(np.uint8)
+                        
+                        # Pasar estado de grabación
+                        recorder.agregar_frame(frame, grabacion_local)
+                        
+                        time.sleep(1.0 / FPS)
+                    except Exception as e:
+                        pass
+            
+            # Iniciar thread
+            from threading import Thread
+            capture_thread = Thread(target=capturador_con_grabacion, daemon=True)
+            capture_thread.start()
+            return recorder
+        
+        capturer = _setup_con_grabacion()
         print("[OK] Grabacion inicializada")
     except Exception as e:
         print(f"[ERROR] No se pudo inicializar grabacion: {e}")
