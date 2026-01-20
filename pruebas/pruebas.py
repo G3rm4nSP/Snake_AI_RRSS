@@ -96,32 +96,54 @@ class Grabador:
             return
         
         try:
-            # Obtener dimensiones del primer frame
-            h, w = frames[0].shape[:2]
+            # Validar primer frame
+            primer_frame = frames[0]
+            if primer_frame is None or len(primer_frame.shape) != 3:
+                raise Exception("Frame inválido")
+            
+            # Obtener dimensiones
+            h, w = primer_frame.shape[:2]
+            
+            # Asegurar que son múltiples de 2 (requerido para codecs)
+            if h % 2 != 0:
+                h = h - 1
+            if w % 2 != 0:
+                w = w - 1
             
             # FPS de salida ajustado por velocidad
             fps_salida = int(FPS * velocidad)
             
-            # Crear VideoWriter con codec H.264
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            writer = cv2.VideoWriter(archivo, fourcc, fps_salida, (w, h))
+            # Crear VideoWriter con XVID (más compatible)
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            writer = cv2.VideoWriter(archivo.replace('.mp4', '.avi'), fourcc, fps_salida, (w, h))
             
             if not writer.isOpened():
-                raise Exception("No se pudo crear VideoWriter")
+                raise Exception("No se pudo abrir VideoWriter")
             
             # Escribir cada frame
-            for i, frame in enumerate(frames):
-                # Asegurar que el frame tiene las dimensiones correctas
+            frames_escritos = 0
+            for frame in frames:
+                # Validar y ajustar frame
+                if frame is None or frame.size == 0:
+                    continue
+                
+                if frame.dtype != np.uint8:
+                    frame = frame.astype(np.uint8)
+                
+                # Redimensionar si es necesario
                 if frame.shape[0] != h or frame.shape[1] != w:
                     frame = cv2.resize(frame, (w, h))
                 
-                # Escribir frame
-                ret = writer.write(frame)
-                if not ret:
-                    raise Exception(f"No se pudo escribir frame {i}")
+                # Escribir
+                if writer.write(frame):
+                    frames_escritos += 1
             
             writer.release()
-            print(f"✓ Video grabado: {os.path.basename(archivo)}")
+            
+            if frames_escritos == 0:
+                raise Exception("No se escribió ningún frame")
+            
+            print(f"✓ Video: {os.path.basename(archivo)} ({frames_escritos} frames)")
             
         except Exception as e:
             print(f"✗ Error escribiendo video: {e}")
