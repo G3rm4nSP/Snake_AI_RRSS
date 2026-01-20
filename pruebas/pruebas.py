@@ -103,8 +103,9 @@ class Grabador:
     
     def guardar_victoria(self):
         """Encola guardado de victoria (partida completa)"""
-        if not self.grabando:
-            return
+        with self.lock:
+            frames = list(self.frames_partida)  # Toda la partida
+            self.grabando = False
         
         # Filtrar frames válidos (no nulos)
         frames_validos = [f for f in frames if f is not None and f.size > 0]
