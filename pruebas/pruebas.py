@@ -177,9 +177,6 @@ def setup_recorder(pantalla, grabador):
                 # Agregar al grabador
                 grabador.agregar_frame(frame)
                 
-                # Small delay para no saturar
-                time.sleep(0.001)
-                
             except Exception as e:
                 pass
     
