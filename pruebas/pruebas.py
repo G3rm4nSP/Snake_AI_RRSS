@@ -39,20 +39,15 @@ class VideoRecorder:
         if frame is None:
             return
         
-        # Convertir a BGR si es necesario
-        if len(frame.shape) == 3 and frame.shape[2] == 3:
-            if frame.dtype == np.uint32:
-                # pygame.surfarray.array3d devuelve en format diferente
-                frame = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_RGB2BGR)
-            else:
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        # Frame ya viene en BGR desde setup_recorder, solo copiar
+        frame_copy = frame.copy()
         
         # Agregar al buffer de derrotas
-        self.frame_buffer.append(frame.copy())
+        self.frame_buffer.append(frame_copy)
         
         # Agregar a victorias si estamos grabando
         if self.recording_win:
-            self.win_frames.append(frame.copy())
+            self.win_frames.append(frame_copy)
     
     def start_game(self):
         """Inicia grabación de una nueva partida"""
@@ -128,13 +123,18 @@ def setup_recorder(screen_surface, recorder):
         import pygame
         while True:
             try:
-                # Obtener array del surface de pygame
-                frame = pygame.surfarray.array3d(screen_surface)
-                # pygame.surfarray devuelve (width, height, 3)
-                # Necesitamos (height, width, 3)
-                frame = np.transpose(frame, (1, 0, 2))
-                # Convertir a BGR
+                # Capturar array del surface (width, height, 3)
+                surface_array = pygame.surfarray.array3d(screen_surface)
+                
+                # Transponer a (height, width, 3) y hacer copia contiguous
+                frame = np.transpose(surface_array, (1, 0, 2)).copy()
+                
+                # Asegurar que es contiguous en memoria
+                frame = np.ascontiguousarray(frame)
+                
+                # Convertir RGB a BGR para OpenCV
                 frame = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                
                 recorder.add_frame(frame)
             except:
                 pass
