@@ -1409,4 +1409,9 @@ while True:
 
     pygame.display.flip()
     
-    # La captura de frames ocurre en thread separado de setup_recorder
+    # Capturar frame sincronizado justo después del flip (0 parpadeos)
+    if GRABACION and recorder:
+        try:
+            recorder.capturar_frame_sincronizado(pantalla, GRABACION)
+        except:
+            pass

@@ -14,6 +14,7 @@ import os
 from datetime import datetime
 import time
 import queue
+import pygame
 
 # ============= CONFIGURACIÓN =============
 BUFFER_SECONDS = 10  # Segundos de buffer para derrotas
@@ -52,6 +53,30 @@ class Grabador:
         
         worker_thread = Thread(target=worker, daemon=True)
         worker_thread.start()
+    
+    def capturar_frame_sincronizado(self, surface_pygame, grabacion_activa):
+        """Capturar frame sincronizado JUSTO después de pygame.display.flip()"""
+        if not grabacion_activa:
+            return
+        
+        try:
+            with self.lock:
+                # Acceso directo a pixels del pygame surface
+                pixels = pygame.surfarray.array3d(surface_pygame)
+                
+                # Transponer de (width, height, 3) a (height, width, 3)
+                frame = np.transpose(pixels, (1, 0, 2))
+                frame = np.ascontiguousarray(frame)
+                frame = frame.astype(np.uint8)
+                
+                # Agregar al buffer circular (siempre)
+                self.buffer_frames.append(frame)
+                
+                # Si estamos grabando, también al buffer de partida
+                if self.grabando:
+                    self.frames_partida.append(frame)
+        except Exception as e:
+            pass
     
     def agregar_frame(self, frame_rgb, grabacion_activa):
         """Agregar frame a buffers circular y de partida"""
@@ -191,29 +216,5 @@ def init_recorder(fps=FPS, buffer_seconds=BUFFER_SECONDS, output_dir=OUTPUT_DIR)
 
 
 def setup_recorder(pantalla, grabador):
-    """Capturar frames desde pygame en thread separado"""
-    
-    def capturador():
-        import pygame
-        
-        while True:
-            try:
-                # Acceso directo a pixels del pygame surface
-                pixels = pygame.surfarray.array3d(pantalla)
-                
-                # Transponer de (width, height, 3) a (height, width, 3)
-                frame = np.transpose(pixels, (1, 0, 2))
-                frame = np.ascontiguousarray(frame)
-                frame = frame.astype(np.uint8)
-                
-                # Agregar frame (grabacion_activa se pasa desde Snake.py)
-                grabador.agregar_frame(frame, True)
-                
-                time.sleep(1.0 / FPS)
-            except Exception as e:
-                pass
-    
-    capture_thread = Thread(target=capturador, daemon=True)
-    capture_thread.start()
-    
+    """Inicializar grabador (ya no necesita thread de captura)"""
     return grabador
