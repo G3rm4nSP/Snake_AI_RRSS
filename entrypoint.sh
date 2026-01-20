@@ -7,8 +7,9 @@ pactl load-module module-null-sink sink_name=stream_sink sink_properties=device.
 pactl set-default-sink stream_sink
 
 # Xvfb
-Xvfb :99 -screen 0 1280x720x24 &
+Xvfb :99 -screen 0 360x720x24 &
 export DISPLAY=:99
+
 
 # Esperar un poco más para asegurar que Xvfb esté listo
 sleep 5
@@ -22,11 +23,17 @@ sleep 5
 
 # Streaming con resolución correcta
 ffmpeg -y \
-  -f x11grab -r 30 -s 1280x720 -i :99 \
+  -f x11grab -r 30 -s 360x720 -i :99 \
   -f pulse -i stream_sink.monitor \
-  -c:v libx264 -preset veryfast -pix_fmt yuv420p \
+  -c:v libx264 \
+  -preset veryfast \
+  -pix_fmt yuv420p \
+  -profile:v high \
+  -level 4.1 \
+  -g 60 \
   -c:a aac -b:a 128k \
   -f flv "$RTMP_URL"
+
 
 # Esperar al juego
 wait $GAME_PID

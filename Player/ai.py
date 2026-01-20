@@ -17,6 +17,7 @@ class Direction(Enum):
 class CellType(Enum):
     Empty = 0
     Wall = 1
+    Mine = 2
     SnakeBody = 3
     Food = 4
 
@@ -61,6 +62,7 @@ class NodeBase:
         self.position = position
         self.g = 0
         self.h = 0
+        self.mines = 0
         self.connection = None
         self.neighbors = []
 
@@ -160,7 +162,7 @@ class StarEmptyCounter:
         for d in directions:
             p = start_position.move_to(d)
             if 0 <= p.row < rows and 0 <= p.column < columns:
-                if grid[p.row][p.column] in (0, 4):
+                if grid[p.row][p.column] == CellType.Empty.value:
                     neighbors.append(NodeBase(p))
 
         minimum = float("inf")
@@ -208,56 +210,23 @@ class StarEmptyCounter:
 
 class StarPathfinder:
 
-    def draw_grid(grid, head_pos, tail_pos, food_pos, path=None):
-        """
-        Dibuja el grid en la terminal.
-        path: lista de posiciones del camino a mostrar con '*'
-        """
-        rows = len(grid)
-        cols = len(grid[0])
-        path_set = set(path) if path else set()
-
-        for r in range(rows):
-            row_str = ""
-            for c in range(cols):
-                pos = Position(r, c)
-                if pos == head_pos:
-                    row_str += "H"
-                elif pos == tail_pos:
-                    row_str += "T"
-                elif pos == food_pos:
-                    row_str += "F"
-                elif pos in path_set:
-                    row_str += "*"
-                else:
-                    cell = grid[r][c]
-                    if cell == CellType.Empty.value:
-                        row_str += "."
-                    elif cell == CellType.Wall.value:
-                        row_str += "#"
-                    elif cell == CellType.SnakeBody.value:
-                        row_str += "B"
-                    else:
-                        row_str += "?"
-            print(row_str)
-        print("\n")
-
     @staticmethod
-    def find_path(grid, head_pos, tail_pos, food_pos, snake_body):
+    def find_path(grid, head_pos, tail_pos, foods, snake_body):
         # 1️⃣ Intentar ir a la comida
-        path = StarPathfinder._find_path_to(
-            grid, head_pos, tail_pos, food_pos
+        path = StarPathfinder._best_food_path(
+            grid, head_pos, tail_pos, foods, snake_body
         )
-        print("PATHFINDER FOOD PATH:", path)
+
+        # print("PATHFINDER FOOD PATH:", path)
 
         if path != "NOT_FOUND":
             return path
 
         # 2️⃣ Intentar seguir la cola
         path = StarPathfinder._find_path_to(
-            grid, head_pos, tail_pos, tail_pos
+            grid, head_pos, tail_pos, tail_pos, snake_body
         )
-        print("PATHFINDER TAIL PATH:", path)
+        # print("PATHFINDER TAIL PATH:", path)
 
         if path != "NOT_FOUND":
             return path
@@ -301,7 +270,6 @@ class StarPathfinder:
 
         # Si no se puede llegar a target_pos, devolvemos camino más largo posible
         return [d for d in current_path]
-
     @staticmethod
     def _exists_path(grid, start, end):
         """Verifica si hay un camino libre entre start y end."""
@@ -320,10 +288,31 @@ class StarPathfinder:
                     if grid[p.row][p.column] in (0, 4) and p not in visited:
                         queue.append(p)
         return False
+    @staticmethod
+    def _best_food_path(grid, head_pos, tail_pos, foods, snake_body):
+        best = None
+        best_score = float("inf")
 
+        for food in foods:
+            path = StarPathfinder._find_path_to(
+                grid, head_pos, tail_pos, food, snake_body
+            )
+
+            if path == "NOT_FOUND":
+                continue
+
+            # score base = longitud
+            score = len(path)
+
+            if score < best_score:
+                best_score = score
+                best = path
+        if best is None:
+            return "NOT_FOUND"
+        return best
 
     @staticmethod
-    def _find_path_to(grid, head_pos, tail_pos, target_pos):
+    def _find_path_to(grid, head_pos, tail_pos, target_pos, snake_body):
         rows = len(grid)
         columns = len(grid[0])
 
@@ -362,17 +351,31 @@ class StarPathfinder:
                 p = current.position.move_to(d)
                 cell = grid[p.row][p.column]
 
-                if cell == 0 or cell == 4 or (cell == CellType.SnakeBody.value and p == target.position):
+                if cell in (
+                    CellType.Empty.value,
+                    CellType.Food.value,
+                    CellType.Mine.value
+                ) or (cell == CellType.SnakeBody.value and p == target.position):
                     neighbor = NodeBase(p)
                     if neighbor in processed:
                         continue
 
-                    cost = current.g + 1
+                    MINE_PENALTY = rows * columns + 1
+
+                    if cell == CellType.Mine.value:
+                        cost = current.g + MINE_PENALTY
+                    else:
+                        cost = current.g + 1
+
                     if neighbor not in to_search or cost < neighbor.g:
                         neighbor.g = cost
                         neighbor.h = Distance.manhattan(
                             neighbor.position, target.position
                         )
+                        neighbor.mines = current.mines
+                        if cell == CellType.Mine.value:
+                            neighbor.mines += 1
+
                         neighbor.connection = current
                         if neighbor not in to_search:
                             to_search.append(neighbor)
@@ -422,8 +425,15 @@ class StarPlayer:
         for d in directions:
             next_pos = data.head_position.move_to(d)
             cell = data.grid[next_pos.row][next_pos.column]
+            
+            if cell == CellType.Mine.value:
+                continue
 
-            if cell != 0 and cell != 4:
+            if cell not in (
+                CellType.Empty.value,
+                CellType.Food.value,
+                CellType.Mine.value
+            ):
                 continue
 
             # simulamos el movimiento completo
@@ -431,7 +441,7 @@ class StarPlayer:
 
             # verificamos si hay camino seguro a la cola
             path_to_tail = StarPathfinder._find_path_to(
-                temp_grid, next_pos, data.tail_position, data.tail_position
+                temp_grid, next_pos, data.tail_position, data.tail_position, snake_body
             )
 
             if path_to_tail != "NOT_FOUND":

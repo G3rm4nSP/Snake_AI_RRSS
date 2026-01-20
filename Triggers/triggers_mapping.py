@@ -2,17 +2,17 @@
 # Este diccionario unifica comentarios y donaciones
 # Comentario exacto o cantidad mínima de donación activa el trigger
 TRIGGERS = {
-    1: {"donation": 5, "comment": "!Mapa +"},
-    2: {"donation": 10, "comment": "!Mapa -"},
-    3: {"donation": 4, "comment": "!Vel +"},
-    4: {"donation": 4, "comment": "!Vel -"},
-    5: {"donation": 1, "comment": "!Fruta"},
-    6: {"donation": 2, "comment": "!Grow"},
-    7: {"donation": 6, "comment": "!Mina"},
-    8: {"donation": 7, "comment": "!Shrink"},
-    9: {"donation": 20, "comment": "!Reset"},
-    0: {"donation": 15, "comment": "!+10"},
-    10: {"donation": None, "comment": "!coin"}  # solo comentario
+    1: {"gift": "guantes boxeo",  "donation": 10,     "comment": "!Mapa +"},
+    2: {"gift": "perfume",        "donation": 20,     "comment": "!Mapa -"},
+    3: {"gift": "lite dino",      "donation": 10,     "comment": "!Vel +"},
+    4: {"gift": "big rose",       "donation": 10,     "comment": "!Vel -"},
+    5: {"gift": "rose",           "donation": 1,      "comment": "!Fruta"},
+    6: {"gift": "finger heart",   "donation": 5,      "comment": "!Len +"},
+    7: {"gift": "flowers s",      "donation": 20,     "comment": "!Mina"},
+    8: {"gift": "rosquilla",      "donation": 30,     "comment": "!Len -"},
+    9: {"gift": "confeti",        "donation": 100,    "comment": "!Reset"},
+    0: {"gift": "Capibara",       "donation": 30,     "comment": "!+10"},
+    10: {"gift": None,            "donation": None,   "comment": "!coin"}  # solo comentario
 }
 
 def get_key_from_comment(comment):
@@ -27,3 +27,14 @@ def get_key_from_donation(amount):
         if data.get("donation") and amount >= data["donation"]:
             return key
     return None
+
+def get_key_from_tiktok_donation(gift_name):
+    gift_name = gift_name.lower().strip()
+
+    for key, data in TRIGGERS.items():
+        gift = data.get("gift")
+        if gift and gift.lower() == gift_name:
+            return key
+
+    return None
+

@@ -23,16 +23,33 @@ from Player.ai import(
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from Triggers.triggers import trigger_queue, run_triggers
 
+# ================= GRABACIÓN =================
+try:
+    from pruebas.pruebas import init_recorder, setup_recorder
+    GRABACION_DISPONIBLE = True
+except ImportError:
+    GRABACION_DISPONIBLE = False
+    print("⚠ Grabación no disponible (falta instalar: pip install opencv-python)")
+
 pygame.init()
 pygame.mouse.set_visible(False)
 
 # ================= CONFIG =================
 FPS = 20
-VELOCIDAD_BASE = 5
+VELOCIDAD_BASE = 10
+TIEMPO_CULDOWN_PANTALLA_FINAL = 0 # segundos
 DANO_MINA = 3
 TAMAÑO_TABLERO_INICIAL = 10
+MAX_CASILLAS = 20
+MIN_CASILLAS= 10
 DEBUG = False  # o False para desactivar debug
+PARTIDAS = 0
+VICTORIAS = 0
 
+# ================= GRABACIÓN DE VIDEOS =================
+GRABACION = True  # Cambiar a False para desactivar grabación automática
+recorder = None
+capturer = None
 
 VERDE_CLARO = (170, 220, 170)
 VERDE_OSCURO = (130, 180, 130)
@@ -46,11 +63,11 @@ fuente = pygame.font.SysFont("consolas", 22)
 fuente_grande = pygame.font.SysFont("consolas", 42)
 fuente_console_big = pygame.font.SysFont("consolas", 96)
 
-ANCHO = 380
+ANCHO = 360
 ALTO = 720
 
-HUD_ALTO = 56
-MENU_HEIGHT = 260   # NUEVO: menú abajo
+HUD_ALTO = 90
+MENU_HEIGHT = 240   # NUEVO: menú abajo
 MENU_WIDTH = 0      # ya no se usa lateral
 
 
@@ -96,8 +113,8 @@ class StarAI:
     def __init__(self):
         self.risk = 0
         self.first_move_done = False  # ⚡ variable para controlar el primer movimiento
-
-    def set_difficulty(self, v):
+    
+    def set_action(self, v):
         self.risk = v
 
     def get_next_move(self, juego):
@@ -115,20 +132,19 @@ class StarAI:
             grid[x][y] = CellType.SnakeBody.value
 
         for x, y in juego.minas:
-            grid[x][y] = CellType.Wall.value
+            grid[x][y] = CellType.Mine.value
 
         for x, y in juego.frutas:
             grid[x][y] = CellType.Food.value
 
         hx, hy = juego.snake.cuerpo[-1]
         tx, ty = juego.snake.cuerpo[0]
-        fx, fy = juego.frutas[0] if juego.frutas else (hx, hy)
 
         path = StarPathfinder.find_path(
             grid,
             Position(hx, hy),
             Position(tx, ty),
-            Position(fx, fy),
+            [Position(x, y) for x, y in juego.frutas] if juego.frutas else (hx, hy),
             juego.snake.cuerpo
         )
 
@@ -137,8 +153,6 @@ class StarAI:
 
         d = StarExtensions.char_to_direction(path[0])
         return d.value  # (dx, dy)
-
-
 
 # ================= UTIL =================
 def calcular_tam_casilla(cx, cy):
@@ -211,6 +225,13 @@ class Juego:
         self.board_dark_color = VERDE_OSCURO
 
     def reset_partida(self):
+        # Iniciar grabación de nueva partida
+        if GRABACION and recorder:
+            try:
+                recorder.start_game()
+            except:
+                pass
+        
         self.tam = calcular_tam_casilla(self.casillas_x, self.casillas_y)
         self.snake = Snake(self.casillas_x, self.casillas_y)
         self.frutas = []
@@ -258,10 +279,20 @@ class Juego:
 
     def trigger_game_over(self):
         # Iniciar pantalla de Game Over con cuenta atrás (10s)
+        global PARTIDAS
         if self.game_over:
             return
+        
+        # Guardar video de derrota
+        if GRABACION and recorder:
+            try:
+                recorder.on_loss()
+            except:
+                pass
+        
         self.game_over = True
-        self.game_over_countdown = 10000  # ms cuenta atrás
+        PARTIDAS += 1
+        self.game_over_countdown = TIEMPO_CULDOWN_PANTALLA_FINAL *1000  # ms cuenta atrás
         self.game_over_start = pygame.time.get_ticks()
         # almacenar tiempo final
         self.game_over_time = pygame.time.get_ticks()
@@ -279,11 +310,19 @@ class Juego:
         return (pygame.time.get_ticks() - self.tiempo_inicio) / 1000
 
     def pos_libre(self):
-        while True:
-            p = (random.randint(0, self.casillas_x - 1),
-                 random.randint(0, self.casillas_y - 1))
-            if p not in self.snake.cuerpo:
-                return p
+        ocupadas = set(self.snake.cuerpo) | set(self.frutas) | set(self.minas)
+
+        libres = [
+            (x, y)
+            for x in range(self.casillas_x)
+            for y in range(self.casillas_y)
+            if (x, y) not in ocupadas
+        ]
+
+        if not libres:
+            return None  # tablero lleno
+
+        return random.choice(libres)
 
     def randomize_board_colors(self):
         # elegir un matiz aleatorio y crear dos tonos (claro / oscuro)
@@ -336,7 +375,7 @@ class Juego:
         return
 
     def ampliar_mapa(self):
-        if self.resize_active:
+        if self.resize_active or self.casillas_x >= MAX_CASILLAS:
             return
         # preparar estado previo
         self.prev_cuerpo = list(self.snake.cuerpo)
@@ -366,7 +405,7 @@ class Juego:
         self.resize_to = (self.casillas_x, self.casillas_y)
 
     def reducir_mapa(self):
-        if self.casillas_x <= 10 or self.casillas_y <= 10 or self.resize_active:
+        if self.casillas_x <= MIN_CASILLAS or self.resize_active:
             return
         # preparar prev
         self.prev_cuerpo = list(self.snake.cuerpo)
@@ -399,7 +438,6 @@ class Juego:
             self.ensure_fruit_exists()
         except Exception:
             pass
-
 
     def actualizar(self):
         # Ahora el movimiento se controla externamente por un acumulador
@@ -479,6 +517,40 @@ class Juego:
             while len(self.cols_offsets[x]) < new_rows + 1:
                 self.cols_offsets[x].append(random.randint(-5,5))
 
+    def win(self):
+        global VICTORIAS, PARTIDAS
+        if self.win_state:
+            return
+        
+        # Guardar video de victoria
+        if GRABACION and recorder:
+            try:
+                recorder.on_win()
+            except:
+                pass
+        
+        self.win_state = True
+        self.game_over = True
+        VICTORIAS += 1
+        PARTIDAS += 1
+        self.win_time = pygame.time.get_ticks()
+        # pausar tiempo jugado y empezar countdown de victoria
+        if self.paused_elapsed is None:
+            self.paused_elapsed = (self.win_time - self.tiempo_inicio) / 1000.0
+        self.win_countdown = TIEMPO_CULDOWN_PANTALLA_FINAL * 1000
+        # crear confeti
+        self.confeti = []
+        cols = [hsv_color(i/10.0) for i in range(10)]
+        for _ in range(120):
+            p = {
+                'x': random.uniform(0, ANCHO),
+                'y': random.uniform(-200, -10),
+                'vx': random.uniform(-50, 50),
+                'vy': random.uniform(50, 300),
+                'col': random.choice(cols),
+                'size': random.randint(4, 10)
+            }
+            self.confeti.append(p)
 
     # ----- DIBUJO -----
 
@@ -570,8 +642,6 @@ class Juego:
         # Opcional: línea roja encima para marcar perímetro
         pygame.draw.lines(pantalla, BORDE_ROJO, True, bordes, 7)
 
-
-
     def _get_render_positions(self, alpha: float):
         prev = list(getattr(self, 'prev_cuerpo', self.snake.cuerpo))
         cur = list(getattr(self, 'cur_cuerpo', self.snake.cuerpo))
@@ -592,9 +662,7 @@ class Juego:
             rx = px * (1 - alpha) + cx * alpha
             ry = py * (1 - alpha) + cy * alpha
             render.append((rx, ry))
-        return render
-    
-    # Función para dibujar una fruta aleatoria en la pantalla
+        return render 
     @staticmethod
     def dibujar_fruta(pantalla, rx, ry, tam_render, fruta_id):
         fruta_img = frutas[fruta_id]
@@ -602,7 +670,6 @@ class Juego:
             size = int(tam_render)
             fruta_img_redim = pygame.transform.smoothscale(fruta_img, (size, size))
             pantalla.blit(fruta_img_redim, (int(rx - size/2), int(ry - size/2)))
-
 
     def dibujar_elementos(self, alpha_move=1.0):
         # calcular tam render (si estamos redimensionando interpolar)
@@ -706,8 +773,8 @@ class Juego:
     def draw_snake_smooth(self, pantalla, tam_render, HUD_ALTO, alpha_move):
         render_positions = self._get_render_positions(alpha_move)
         total = len(render_positions)
-        if total < 2:
-            return
+        # if total < 2:
+        #     return
 
         # Convertir a coordenadas de pantalla
         screen_positions = [
@@ -765,8 +832,7 @@ class Juego:
                 (ex + int(dir_x * eye_r * 0.5), ey + int(dir_y * eye_r * 0.5)),
                 eye_r // 2
             )
-
-        
+      
     def catmull_rom_spline(P0, P1, P2, P3, n_points=10):
         """
         Devuelve puntos interpolados entre P1 y P2 usando Catmull-Rom spline.
@@ -790,36 +856,42 @@ class Juego:
         return points
 
     def dibujar_hud(self):
-        # Ancho HUD dinámico para evitar superposición con el menú
-        max_hud_w = max(ANCHO - MENU_WIDTH - 40, 120)
-        hud_w = min(520, max_hud_w)
-        hud_h = 36  # más bajo que antes
+        # HUD en dos líneas: principales arriba, secundarias abajo
+        hud_w = ANCHO - 20
+        hud_h = 70
         s = pygame.Surface((hud_w, hud_h), pygame.SRCALPHA)
         s.fill((10, 10, 14, 200))
-        pantalla.blit(s, ((ANCHO - hud_w)//2, 6))
 
-        # Estadísticas
-        x_cursor = 12
-        gap = 12
-        fuente_small = pygame.font.SysFont("consolas", 14)  # fuente más pequeña
+        fuente_small = pygame.font.SysFont("consolas", 14)
+        fuente_tiny = pygame.font.SysFont("consolas", 12)
 
-        def draw_stat(icon_color, label, value):
-            nonlocal x_cursor
-            pygame.draw.circle(pantalla, icon_color, (x_cursor + 6, 6 + hud_h//2), 5)  # icono más pequeño
-            x_cursor += 14
-            lbl = fuente_small.render(label, True, (200, 200, 200))
-            pantalla.blit(lbl, (x_cursor, 6))
+        def draw_stat(icon_color, label, value, font=fuente_small, x_start=0, y_pos=0):
+            pygame.draw.circle(pantalla, icon_color, (x_start + 6, y_pos + 14), 5)
+            x_cursor = x_start + 14
+            lbl = font.render(label, True, (200, 200, 200))
+            pantalla.blit(lbl, (x_cursor, y_pos))
             x_cursor += lbl.get_width() + 4
-            val = fuente_small.render(str(value), True, (255, 255, 255))
-            pantalla.blit(val, (x_cursor, 6))
-            x_cursor += val.get_width() + gap
+            val = font.render(str(value), True, (255, 255, 255))
+            pantalla.blit(val, (x_cursor, y_pos))
+            return x_cursor + val.get_width() + 20
 
-        # Stats principales
-        draw_stat((120,220,120), "Len", f"{self.snake.longitud}")
-        draw_stat((220,180,80), "Spd", f"{self.velocidad}")
-        draw_stat((200,200,200), "Map", f"{self.casillas_x}x{self.casillas_y}")
-        draw_stat((180,200,255), "Time", f"{self.tiempo_vivo():.1f}s")
-    
+        # LÍNEA PRINCIPAL (arriba)
+        x_pos = 20
+        x_pos = draw_stat((120, 220, 120), "Len", f"{self.snake.longitud}", fuente_small, x_pos, 10)
+        x_pos = draw_stat((255, 100, 100), "Fruits", f"{self.frutas_recogidas}", fuente_small, x_pos, 10)
+        x_pos = draw_stat((255, 80, 80), "Mines", f"{self.minas_activadas}", fuente_small, x_pos, 10)
+        x_pos = draw_stat((220, 180, 80), "Spd", f"{self.velocidad}", fuente_small, x_pos, 10)
+
+        # LÍNEA SECUNDARIA (abajo)
+        x_pos = 20
+        x_pos = draw_stat((200, 200, 200), "Map", 
+                         f"{self.casillas_x}x{self.casillas_y}" +
+                         ("(min)" if self.casillas_x == MIN_CASILLAS else
+                          "(max)" if self.casillas_x >= MAX_CASILLAS else ""),
+                         fuente_tiny, x_pos, 42)
+        x_pos = draw_stat((180, 200, 255), "Time", f"{self.tiempo_vivo():.1f}s", fuente_tiny, x_pos, 42)
+        x_pos = draw_stat((255, 240, 60), "Wins", f"{VICTORIAS}/{PARTIDAS}({VICTORIAS/PARTIDAS*100 if PARTIDAS > 0 else 0}%)", fuente_tiny, x_pos, 42)
+   
     def dibujar_menu(self):
         y0 = ALTO - MENU_HEIGHT
         pygame.draw.rect(
@@ -829,7 +901,7 @@ class Juego:
         )
 
         titulo = fuente.render("ACCIONES", True, (250, 220, 130))
-        pantalla.blit(titulo, (12, y0 + 8))
+        pantalla.blit(titulo, (ANCHO//2 - titulo.get_width()//2, y0 + 8))
 
         acciones = {
             1: "Mapa +",
@@ -837,16 +909,16 @@ class Juego:
             3: "Vel +",
             4: "Vel -",
             5: "Fruta",
-            6: "Grow",
+            6: "Len +",
             7: "Mina",
-            8: "Shrink",
+            8: "Len -",
             9: "Reset",
             0: "+10",
         }
 
         cols = 5
         spacing_x = ANCHO // cols
-        start_y = y0 + 40
+        start_y = y0 + 80
 
         font_btn = pygame.font.SysFont("consolas", 16)
 
@@ -877,30 +949,6 @@ class Juego:
 
             i += 1
 
-    def win(self):
-        if self.win_state:
-            return
-        self.win_state = True
-        self.game_over = True
-        self.win_time = pygame.time.get_ticks()
-        # pausar tiempo jugado y empezar countdown de victoria
-        if self.paused_elapsed is None:
-            self.paused_elapsed = (self.win_time - self.tiempo_inicio) / 1000.0
-        self.win_countdown = 10000
-        # crear confeti
-        self.confeti = []
-        cols = [hsv_color(i/10.0) for i in range(10)]
-        for _ in range(120):
-            p = {
-                'x': random.uniform(0, ANCHO),
-                'y': random.uniform(-200, -10),
-                'vx': random.uniform(-50, 50),
-                'vy': random.uniform(50, 300),
-                'col': random.choice(cols),
-                'size': random.randint(4, 10)
-            }
-            self.confeti.append(p)
-
     def dibujar_win(self, dt):
         # fondo semi-transparente
         s = pygame.Surface((ANCHO, ALTO), pygame.SRCALPHA)
@@ -923,7 +971,10 @@ class Juego:
             ("Velocidad:", f"{self.velocidad}"),
             ("Tamaño:", f"{self.casillas_x}x{self.casillas_y}"),
             ("Frutas:", f"{self.frutas_recogidas}"),
-            ("Minas:", f"{self.minas_activadas}")
+            ("Minas:", f"{self.minas_activadas}"),
+            ("Victorias:", f"{VICTORIAS}/{PARTIDAS}"),
+            ("Derotas:", f"{PARTIDAS - VICTORIAS}/{PARTIDAS}"),
+            
         ]
 
         for k, v in stats:
@@ -963,7 +1014,10 @@ class Juego:
             ("Velocidad:", f"{self.velocidad}"),
             ("Tamaño:", f"{self.casillas_x}x{self.casillas_y}"),
             ("Frutas:", f"{self.frutas_recogidas}"),
-            ("Minas:", f"{self.minas_activadas}")
+            ("Minas:", f"{self.minas_activadas}"),
+            ("Victorias:", f"{VICTORIAS}/{PARTIDAS}"),
+            ("Derotas:", f"{PARTIDAS - VICTORIAS}/{PARTIDAS}"),
+            
         ]
 
         for k, v in stats:
@@ -1005,6 +1059,15 @@ class Juego:
 juego = Juego()
 juego.inicializar_tablero_alocado()  # esto prepara los offsets
 
+# ================= INICIALIZAR GRABACIÓN =================
+if GRABACION and GRABACION_DISPONIBLE:
+    try:
+        recorder = init_recorder(fps=FPS, output_dir="videos")
+        capturer = setup_recorder(pantalla, recorder)
+        print("[OK] Grabacion inicializada")
+    except Exception as e:
+        print(f"[ERROR] No se pudo inicializar grabacion: {e}")
+        GRABACION = False
 
 # Iniciar servidor de triggers externos
 run_triggers()
@@ -1018,52 +1081,60 @@ while True:
         if key == 0:
             juego.key_counts[0] += 1
             juego.snake.crecer(10)
-            juego.ai.set_difficulty(0)
+            juego.ai.set_action(0)
 
         elif key == 1:
             juego.key_counts[1] += 1
             juego.ampliar_mapa()
-            juego.ai.set_difficulty(1)
+            juego.ai.set_action(1)
 
         elif key == 2:
             juego.key_counts[2] += 1
             juego.reducir_mapa()
-            juego.ai.set_difficulty(2)
+            juego.ai.set_action(2)
 
         elif key == 3:
             juego.key_counts[3] += 1
             juego.velocidad += 1
-            juego.ai.set_difficulty(3)
+            juego.ai.set_action(3)
 
         elif key == 4 and juego.velocidad > 1:
             juego.key_counts[4] += 1
             juego.velocidad -= 1
-            juego.ai.set_difficulty(4)
+            juego.ai.set_action(4)
 
         elif key == 5:
             juego.key_counts[5] += 1
-            juego.frutas.append(juego.pos_libre())
-            juego.ai.set_difficulty(5)
+            pos = juego.pos_libre()
+            if not pos:
+                continue
+            juego.frutas.append(pos)
+            juego.frutas_ids[pos] = random.randint(1, NUM_FRUTAS)
+            juego.ai.set_action(5)
+
 
         elif key == 6:
             juego.key_counts[6] += 1
             juego.snake.crecer(1)
-            juego.ai.set_difficulty(6)
+            juego.ai.set_action(6)
 
         elif key == 7:
             juego.key_counts[7] += 1
-            juego.minas.append(juego.pos_libre())
-            juego.ai.set_difficulty(7)
+            pos = juego.pos_libre()
+            if not pos:
+                continue
+            juego.minas.append(pos)
+            juego.ai.set_action(7)
 
         elif key == 8:
             juego.key_counts[8] += 1
             juego.snake.reducir(1)
-            juego.ai.set_difficulty(8)
+            juego.ai.set_action(8)
 
         elif key == 9:
             juego.key_counts[9] += 1
             juego.trigger_game_over()
-            juego.ai.set_difficulty(9)
+            juego.ai.set_action(9)
 
         # ===INICIAR IA CON KEY 10====
         elif key == 10 and not juego.en_juego:
@@ -1133,48 +1204,61 @@ while True:
             if e.key == pygame.K_1:
                 juego.key_counts[1] = juego.key_counts.get(1, 0) + 1
                 juego.ampliar_mapa()
-                juego.ai.set_difficulty(1)
+                juego.ai.set_action(1)
 
             if e.key == pygame.K_2:
                 juego.key_counts[2] = juego.key_counts.get(2, 0) + 1
                 juego.reducir_mapa()
-                juego.ai.set_difficulty(2)
+                juego.ai.set_action(2)
 
             if e.key == pygame.K_3:
                 juego.key_counts[3] = juego.key_counts.get(3, 0) + 1
                 juego.velocidad += 1
-                juego.ai.set_difficulty(3)
+                juego.ai.set_action(3)
+
             if e.key == pygame.K_4 and juego.velocidad > 1:
                 juego.key_counts[4] = juego.key_counts.get(4, 0) + 1
                 juego.velocidad -= 1
-                juego.ai.set_difficulty(4)
+                juego.ai.set_action(4)
 
             if e.key == pygame.K_5:
-                juego.key_counts[5] = juego.key_counts.get(5, 0) + 1
-                juego.frutas.append(juego.pos_libre())
-                juego.ai.set_difficulty(5)
+                juego.key_counts[5] += 1
+                pos = juego.pos_libre()
+                if not pos:
+                    continue
+                juego.frutas.append(pos)
+                juego.frutas_ids[pos] = random.randint(1, NUM_FRUTAS)
+                juego.ai.set_action(5)
+
             if e.key == pygame.K_6:
                 juego.key_counts[6] = juego.key_counts.get(6, 0) + 1
                 juego.snake.crecer(1)
-                juego.ai.set_difficulty(6)
+                juego.ai.set_action(6)
+
             if e.key == pygame.K_7:
                 juego.key_counts[7] = juego.key_counts.get(7, 0) + 1
-                juego.minas.append(juego.pos_libre())
-                juego.ai.set_difficulty(7)
+                pos = juego.pos_libre()
+                if not pos:
+                    continue
+                juego.minas.append(pos)
+                juego.ai.set_action(7)
+
             if e.key == pygame.K_8:
                 juego.key_counts[8] = juego.key_counts.get(8, 0) + 1
                 juego.snake.reducir(1)
-                juego.ai.set_difficulty(8)
+                juego.ai.set_action(8)
                 if juego.snake.longitud <= 0:
                     juego.trigger_game_over()
+
             if e.key == pygame.K_0:
                 juego.key_counts[0] = juego.key_counts.get(0, 0) + 1
                 juego.snake.crecer(10)
-                juego.ai.set_difficulty(0)
+                juego.ai.set_action(0)
+
             if e.key == pygame.K_9:
                 juego.key_counts[9] = juego.key_counts.get(9, 0) + 1
                 juego.trigger_game_over()
-                juego.ai.set_difficulty(9)
+                juego.ai.set_action(9)
 
     pantalla.fill((0, 0, 0))
     if not juego.en_juego:
@@ -1286,3 +1370,10 @@ while True:
                 juego.dibujar_game_over(dt)
 
     pygame.display.flip()
+    
+    # ================= GRABACIÓN DE FRAME =================
+    if GRABACION and recorder:
+        try:
+            recorder.add_frame(pygame.surfarray.array3d(pantalla))
+        except:
+            pass  # Ignorar errores de grabación

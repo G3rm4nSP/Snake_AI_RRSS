@@ -1,1 +1,4 @@
 Snake/assets/*.mp3
+videos/
+__pycache__/
+*.pyc

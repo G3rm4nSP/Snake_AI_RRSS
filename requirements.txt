@@ -4,3 +4,5 @@ requests
 TikTokLive
 numpy
 twitchio>=2.8,<3.0
+opencv-python>=4.5.0
+numpy>=1.19.0

@@ -41,7 +41,17 @@ def run_tiktok_node():
 
     @client.on(GiftEvent)
     async def on_gift(event):
-        key = get_key_from_donation(event.gift.repeat_count)
+        if not event.gift.repeat_end:
+            return
+
+        gift_name = event.gift.name
+
+        print(
+            f"🎁 Regalo: {gift_name} "
+            f"x{event.gift.repeat_count} "
+            f"| 👤 {event.user.nickname}"
+        )
+        key = get_key_from_tiktok_donation(gift_name)
         if key is not None:
             send_trigger(key)
 
