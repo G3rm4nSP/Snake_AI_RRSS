@@ -25,12 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from Triggers.triggers import trigger_queue, run_triggers
 
 # ================= GRABACIÓN =================
-try:
-    from pruebas.pruebas import init_recorder, setup_recorder
-    GRABACION_DISPONIBLE = True
-except ImportError:
-    GRABACION_DISPONIBLE = False
-    print("⚠ Grabación no disponible (falta instalar: pip install opencv-python)")
+from pruebas import init_recorder, setup_recorder
 
 pygame.init()
 pygame.mouse.set_visible(False)
@@ -49,7 +44,6 @@ VICTORIAS = 0
 
 # ================= GRABACIÓN DE VIDEOS =================
 GRABACION = True  # Cambiar a False para desactivar grabación automática
-recorder = None
 capturer = None
 
 VERDE_CLARO = (170, 220, 170)
@@ -73,6 +67,9 @@ MENU_WIDTH = 0      # ya no se usa lateral
 
 
 pantalla = pygame.display.set_mode((ANCHO, ALTO))
+recorder = init_recorder()
+setup_recorder(pantalla, recorder)
+
 
 # Cargar iconos de assets (0.png .. 9.png)
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
@@ -208,6 +205,7 @@ class Juego:
     def __init__(self):
         self.casillas_x = TAMAÑO_TABLERO_INICIAL
         self.casillas_y = TAMAÑO_TABLERO_INICIAL
+        self.anim_time = 0.0
         self.reset_total()
 
     def reset_total(self):
@@ -577,7 +575,8 @@ class Juego:
         rows = self.casillas_y
 
         # animación de color
-        t = time.time()
+        self.anim_time += dt / 1000.0
+        t = self.anim_time
         cx, cy = cols / 2, rows / 2
         max_dist = (cx**2 + cy**2)**0.5
 
@@ -1059,53 +1058,8 @@ class Juego:
 # ================= LOOP =================
 juego = Juego()
 juego.inicializar_tablero_alocado()  # esto prepara los offsets
-
+recorder.iniciar_partida() if GRABACION and recorder else None
 # ================= INICIALIZAR GRABACIÓN =================
-if GRABACION and GRABACION_DISPONIBLE:
-    try:
-        recorder = init_recorder(fps=FPS, output_dir="videos")
-        
-        # Pasar GRABACION como referencia global para el capturador
-        def _setup_con_grabacion():
-            import sys
-            import inspect
-            
-            # Obtener el módulo actual (Snake.py)
-            frame_actual = inspect.currentframe()
-            modulo_actual = inspect.getmodule(frame_actual)
-            
-            def capturador_con_grabacion():
-                import pygame
-                import time
-                
-                while True:
-                    try:
-                        # Acceder a la variable GRABACION del módulo actual
-                        grabacion_local = getattr(modulo_actual, 'GRABACION', False)
-                        
-                        pixels = pygame.surfarray.array3d(pantalla)
-                        frame = np.transpose(pixels, (1, 0, 2))
-                        frame = np.ascontiguousarray(frame)
-                        frame = frame.astype(np.uint8)
-                        
-                        # Pasar estado de grabación
-                        recorder.agregar_frame(frame, grabacion_local)
-                        
-                        time.sleep(1.0 / FPS)
-                    except Exception as e:
-                        pass
-            
-            # Iniciar thread
-            from threading import Thread
-            capture_thread = Thread(target=capturador_con_grabacion, daemon=True)
-            capture_thread.start()
-            return recorder
-        
-        capturer = _setup_con_grabacion()
-        print("[OK] Grabacion inicializada")
-    except Exception as e:
-        print(f"[ERROR] No se pudo inicializar grabacion: {e}")
-        GRABACION = False
 
 # Iniciar servidor de triggers externos
 run_triggers()
@@ -1409,4 +1363,3 @@ while True:
 
     pygame.display.flip()
     
-    # La captura de frames ocurre en thread separado de setup_recorder

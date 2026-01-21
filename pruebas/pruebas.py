@@ -191,13 +191,28 @@ def init_recorder(fps=FPS, buffer_seconds=BUFFER_SECONDS, output_dir=OUTPUT_DIR)
 
 
 def setup_recorder(pantalla, grabador):
-    """Capturar frames desde pygame en thread separado"""
+    """Capturar frames desde pygame en thread separado - optimizado para reducir parpadeos"""
     
     def capturador():
         import pygame
+        import time
+        
+        # Timing más conservador para evitar capturas en medio del render
+        tiempo_entre_capturas = 1.0 / (FPS * 0.95)  # Ligeramente más lento que FPS para estabilidad
+        ultima_captura = time.time()
         
         while True:
             try:
+                ahora = time.time()
+                
+                # Esperar hasta que sea tiempo de capturar siguiente
+                tiempo_espera = tiempo_entre_capturas - (ahora - ultima_captura)
+                if tiempo_espera > 0:
+                    time.sleep(tiempo_espera)
+                    ultima_captura = time.time()
+                else:
+                    ultima_captura = ahora
+                
                 # Acceso directo a pixels del pygame surface
                 pixels = pygame.surfarray.array3d(pantalla)
                 
@@ -206,10 +221,9 @@ def setup_recorder(pantalla, grabador):
                 frame = np.ascontiguousarray(frame)
                 frame = frame.astype(np.uint8)
                 
-                # Agregar frame (grabacion_activa se pasa desde Snake.py)
+                # Agregar frame
                 grabador.agregar_frame(frame, True)
                 
-                time.sleep(1.0 / FPS)
             except Exception as e:
                 pass
     
