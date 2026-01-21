@@ -1059,6 +1059,8 @@ class Juego:
 juego = Juego()
 juego.inicializar_tablero_alocado()  # esto prepara los offsets
 recorder.iniciar_partida() if GRABACION and recorder else None
+if GRABACION: print("● Grabación de partidas ACTIVADA")
+else: print("○ Grabación de partidas DESACTIVADA")
 # ================= INICIALIZAR GRABACIÓN =================
 
 # Iniciar servidor de triggers externos
